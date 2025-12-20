@@ -1,0 +1,28 @@
+# Development Dockerfile for JAM Stack Application
+# Optimized for hot-reloading and fast development
+
+FROM node:20-alpine
+
+# Install dependencies for better development experience
+RUN apk add --no-cache git
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json package-lock.json ./
+
+# Install all dependencies (including dev dependencies)
+RUN npm install
+
+# Copy application code
+COPY . .
+
+# Expose port for Next.js dev server
+EXPOSE 3000
+
+# Set environment
+ENV NODE_ENV development
+ENV NEXT_TELEMETRY_DISABLED 1
+
+# Start development server with hot reload
+CMD ["npm", "run", "dev"]

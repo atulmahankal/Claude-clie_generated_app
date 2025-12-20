@@ -1,0 +1,53 @@
+version: '3.9'
+
+networks:
+  todos-network:
+    driver: bridge
+
+services:
+  shared-db:
+    image: postgres:15
+    container_name: shared-db
+    environment:
+      POSTGRES_DB: shared
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - shared-db-data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    networks:
+      - todos-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  todos-service:
+    build:
+      context: ../..
+      dockerfile: services/todos-service/Dockerfile
+    container_name: todos-service
+    ports:
+      - "3002:3002"
+      - "50052:50052"
+    environment:
+      - DB_TYPE=postgres
+      - DB_HOST=shared-db
+      - DB_PORT=5432
+      - DB_NAME=shared
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - GRPC_PORT=50052
+      - HTTP_PORT=3002
+    depends_on:
+      shared-db:
+        condition: service_healthy
+    networks:
+      - todos-network
+
+volumes:
+  shared-db-data:
+    driver: local

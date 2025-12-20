@@ -1,0 +1,42 @@
+# Docker Compose for Development Environment
+# Run with: docker-compose up
+
+version: '3.9'
+
+services:
+  # Next.js Application (Development)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: jam-stack-app-dev
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount source code for hot reload
+      - .:/app
+      # Prevent overwriting node_modules
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - NEXT_TELEMETRY_DISABLED=1
+    env_file:
+      - .env.local
+    networks:
+      - jam-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  jam-network:
+    driver: bridge
+
+# Note: Supabase is hosted externally
+# For local Supabase development, add Supabase services:
+# https://supabase.com/docs/guides/self-hosting/docker

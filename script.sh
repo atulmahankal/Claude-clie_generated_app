@@ -45,7 +45,7 @@ MENU_ITEMS=(
     # Hostname commands
     ["setup-hostname"]="Setup Hostname|Add custom hostname (requires sudo)|hostname_not_set"
     ["remove-hostname"]="Remove Hostname|Remove custom hostname (requires sudo)|hostname_set"
-    ["change-hostname"]="Change Hostname|Change the application hostname|always"
+    ["change-hostname"]="Change Hostname|Change the application hostname (requires sudo)|always"
     ["show-hostname"]="Show Hostname|Display hostname configuration|always"
 
     # Utility commands (always available)
@@ -61,12 +61,18 @@ print_header() {
     # Calculate padding for centering the title
     local header_width=60
     local title_len=${#title_version}
-    local padding_total=$((header_width - title_len))
+    local padding_total=$((header_width - title_len + 12))
     local padding_left=$((padding_total / 2))
     local padding_right=$((padding_total - padding_left))
 
+    local left_padding=""
+    for (( i=0; i<padding_left; i++ )); do left_padding+=" "; done
+
+    local right_padding=""
+    for (( i=0; i<padding_right; i++ )); do right_padding+=" "; done
+
     echo -e "${CYAN}╔════════════════════════════════════════════════════════════════════════╗${NC}"
-    printf "${CYAN}║%*s${MAGENTA}%s${NC}%*s${CYAN}║${NC}\n" "$padding_left" "" "$title_version" "$padding_right" ""
+    echo -e "${CYAN}║${left_padding}${MAGENTA}${title_version}${NC}${right_padding}${CYAN}║${NC}"
     echo -e "${CYAN}╚════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -211,6 +217,7 @@ show_interactive_menu() {
     while true; do
         # Move cursor to menu start position
         tput rc
+        tput ed
 
         # Display menu options (inline format like --help)
         for i in "${!DYNAMIC_MENU[@]}"; do
@@ -1033,19 +1040,19 @@ cmd_show_hostname() {
     local main_configured=false
     local mailpit_configured=false
 
-    if grep -q "127.0.0.1.*$HOSTNAME" /etc/hosts; then
+    if grep -q "127.0.0.1\s\+$HOSTNAME$" /etc/hosts; then
         main_configured=true
         print_success "Main hostname is configured"
-        grep "127.0.0.1.*$HOSTNAME" /etc/hosts | sed 's/^/  /'
+        grep "127.0.0.1\s\+$HOSTNAME$" /etc/hosts | sed 's/^/  /'
     else
         print_warning "Main hostname is NOT configured"
     fi
 
     if [ -n "$MAILPIT_HOSTNAME" ] && [ "$MAILPIT_HOSTNAME" != "localhost" ]; then
-        if grep -q "127.0.0.1.*$MAILPIT_HOSTNAME" /etc/hosts; then
+        if grep -q "127.0.0.1\s\+$MAILPIT_HOSTNAME$" /etc/hosts; then
             mailpit_configured=true
             print_success "Mailpit hostname is configured"
-            grep "127.0.0.1.*$MAILPIT_HOSTNAME" /etc/hosts | sed 's/^/  /'
+            grep "127.0.0.1\s\+$MAILPIT_HOSTNAME$" /etc/hosts | sed 's/^/  /'
         else
             print_warning "Mailpit hostname is NOT configured"
         fi

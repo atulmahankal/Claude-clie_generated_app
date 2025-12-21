@@ -45,3 +45,48 @@ next-env.d.ts
 docker/volumes/db/
 docker/volumes/storage/
 .docker/
+
+# Build artifacts
+.next/
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Dependencies
+node_modules/
+venv/
+env/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+.dockerignore
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Old structure (optional - uncomment to ignore)
+# old_structure/

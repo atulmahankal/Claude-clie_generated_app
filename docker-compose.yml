@@ -1,38 +1,104 @@
-# Unified Docker Compose Configuration
-# Supports development and production deployments with selective service activation
-#
-# Usage:
-#   Development (all services):     docker compose --profile dev up
-#   Production (all services):      docker compose --profile prod up
-#   Specific service:               docker compose --profile auth up
-#   Multiple profiles:              docker compose --profile auth --profile todos up
-#
-# Available Profiles:
-#   - dev:       All services for development
-#   - prod:      All services for production
-#   - auth:      Authentication service only
-#   - todos:     Todos service only
-#   - fundflow:  Fundflow service only
-#   - frontend:  Frontend only
-#   - mail:      Mailpit email testing only
+version: '3.9'
 
 networks:
   jam-network:
     driver: bridge
 
 volumes:
+  base-db-data:
   auth-db-data:
-    driver: local
-  shared-db-data:
-    driver: local
+  todos-db-data:
   fundflow-db-data:
-    driver: local
 
 services:
-  # ===== DATABASES =====
+  # ===== NGINX REVERSE PROXY =====
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: jam-nginx
+    profiles: ["dev", "prod"]
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    depends_on:
+      - base-app-frontend
+      - auth-frontend
+      - todos-frontend
+      - fundflow-frontend
+    networks:
+      - jam-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===== BASE APPLICATION =====
+
+  base-app-db:
+    image: postgres:16-alpine
+    container_name: jam-base-db
+    profiles: ["dev", "prod", "base"]
+    environment:
+      POSTGRES_DB: base_app
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${BASE_DB_PASSWORD:-postgres}
+    ports:
+      - "${BASE_DB_PORT:-5436}:5432"
+    volumes:
+      - base-db-data:/var/lib/postgresql/data
+      - ./base_app/backend/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - jam-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  base-app-backend:
+    build:
+      context: ./base_app/backend
+      dockerfile: Dockerfile
+    container_name: jam-base-backend
+    profiles: ["dev", "prod", "base"]
+    ports:
+      - "${BASE_HTTP_PORT:-3000}:3000"
+    environment:
+      HTTP_PORT: 3000
+      DB_HOST: base-app-db
+      DB_PORT: 5432
+      DB_NAME: base_app
+      DB_USER: postgres
+      DB_PASSWORD: ${BASE_DB_PASSWORD:-postgres}
+    depends_on:
+      base-app-db:
+        condition: service_healthy
+    networks:
+      - jam-network
+    restart: unless-stopped
+
+  base-app-frontend:
+    build:
+      context: .
+      dockerfile: base_app/frontend/Dockerfile
+    container_name: jam-base-frontend
+    profiles: ["dev", "prod", "base"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      BASE_BACKEND_URL: http://base-app-backend:3000
+    depends_on:
+      - base-app-backend
+    networks:
+      - jam-network
+    restart: unless-stopped
+
+  # ===== AUTH SERVICE =====
 
   auth-db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: jam-auth-db
     profiles: ["dev", "prod", "auth"]
     environment:
@@ -43,7 +109,7 @@ services:
       - "${AUTH_DB_PORT:-5433}:5432"
     volumes:
       - auth-db-data:/var/lib/postgresql/data
-      - ./services/auth-service/migrations:/docker-entrypoint-initdb.d
+      - ./services/auth-service/backend/migrations:/docker-entrypoint-initdb.d
     networks:
       - jam-network
     healthcheck:
@@ -53,19 +119,63 @@ services:
       retries: 5
     restart: unless-stopped
 
-  shared-db:
-    image: postgres:15-alpine
-    container_name: jam-shared-db
+  auth-service:
+    build:
+      context: ./services/auth-service/backend
+      dockerfile: Dockerfile
+    container_name: jam-auth-service
+    profiles: ["dev", "prod", "auth"]
+    ports:
+      - "${AUTH_HTTP_PORT:-3001}:3001"
+      - "${AUTH_GRPC_PORT:-50051}:50051"
+    environment:
+      HTTP_PORT: 3001
+      GRPC_PORT: 50051
+      DB_HOST: auth-db
+      DB_PORT: 5432
+      DB_NAME: auth
+      DB_USER: postgres
+      DB_PASSWORD: ${AUTH_DB_PASSWORD:-postgres}
+      JWT_SECRET: ${JWT_SECRET:-your-secret-key}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-your-refresh-secret}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    networks:
+      - jam-network
+    restart: unless-stopped
+
+  auth-frontend:
+    build:
+      context: .
+      dockerfile: services/auth-service/frontend/Dockerfile
+    container_name: jam-auth-frontend
+    profiles: ["dev", "prod", "auth"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      AUTH_GRPC_URL: auth-service:50051
+    depends_on:
+      - auth-service
+    networks:
+      - jam-network
+    restart: unless-stopped
+
+  # ===== TODOS SERVICE =====
+
+  todos-db:
+    image: postgres:16-alpine
+    container_name: jam-todos-db
     profiles: ["dev", "prod", "todos"]
     environment:
-      POSTGRES_DB: shared
+      POSTGRES_DB: todos
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${SHARED_DB_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${TODOS_DB_PASSWORD:-postgres}
     ports:
-      - "${SHARED_DB_PORT:-5435}:5432"
+      - "${TODOS_DB_PORT:-5435}:5432"
     volumes:
-      - shared-db-data:/var/lib/postgresql/data
-      - ./services/todos-service/migrations:/docker-entrypoint-initdb.d
+      - todos-db-data:/var/lib/postgresql/data
     networks:
       - jam-network
     healthcheck:
@@ -75,8 +185,49 @@ services:
       retries: 5
     restart: unless-stopped
 
+  todos-service:
+    build:
+      context: ./services/todos-service/backend
+      dockerfile: Dockerfile
+    container_name: jam-todos-service
+    profiles: ["dev", "prod", "todos"]
+    ports:
+      - "${TODOS_HTTP_PORT:-3002}:3002"
+      - "${TODOS_GRPC_PORT:-50052}:50052"
+    environment:
+      HTTP_PORT: 3002
+      GRPC_PORT: 50052
+      DB_HOST: todos-db
+      DB_PORT: 5432
+      DB_NAME: todos
+      DB_USER: postgres
+      DB_PASSWORD: ${TODOS_DB_PASSWORD:-postgres}
+    depends_on:
+      todos-db:
+        condition: service_healthy
+    networks:
+      - jam-network
+    restart: unless-stopped
+
+  todos-frontend:
+    build:
+      context: .
+      dockerfile: services/todos-service/frontend/Dockerfile
+    container_name: jam-todos-frontend
+    profiles: ["dev", "prod", "todos"]
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      TODOS_GRPC_URL: todos-service:50052
+    depends_on:
+      - todos-service
+    networks:
+      - jam-network
+    restart: unless-stopped
+
+  # ===== FUNDFLOW SERVICE =====
+
   fundflow-db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: jam-fundflow-db
     profiles: ["dev", "prod", "fundflow"]
     environment:
@@ -87,7 +238,6 @@ services:
       - "${FUNDFLOW_DB_PORT:-5434}:5432"
     volumes:
       - fundflow-db-data:/var/lib/postgresql/data
-      - ./services/fundflow-service/migrations:/docker-entrypoint-initdb.d
     networks:
       - jam-network
     healthcheck:
@@ -97,128 +247,44 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # ===== MICROSERVICES =====
-
-  auth-service:
-    build:
-      context: .
-      dockerfile: services/auth-service/Dockerfile
-    container_name: jam-auth-service
-    profiles: ["dev", "prod", "auth"]
-    ports:
-      - "${AUTH_HTTP_PORT:-3011}:3001"
-      - "${AUTH_GRPC_PORT:-50051}:50051"
-    environment:
-      NODE_ENV: ${NODE_ENV:-production}
-      DB_TYPE: postgres
-      DB_HOST: auth-db
-      DB_PORT: 5432
-      DB_NAME: auth
-      DB_USER: postgres
-      DB_PASSWORD: ${AUTH_DB_PASSWORD:-postgres}
-      GRPC_PORT: 50051
-      HTTP_PORT: 3001
-    depends_on:
-      auth-db:
-        condition: service_healthy
-    networks:
-      - jam-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  todos-service:
-    build:
-      context: .
-      dockerfile: services/todos-service/Dockerfile
-    container_name: jam-todos-service
-    profiles: ["dev", "prod", "todos"]
-    ports:
-      - "${TODOS_HTTP_PORT:-3002}:3002"
-      - "${TODOS_GRPC_PORT:-50052}:50052"
-    environment:
-      NODE_ENV: ${NODE_ENV:-production}
-      DB_TYPE: postgres
-      DB_HOST: shared-db
-      DB_PORT: 5432
-      DB_NAME: shared
-      DB_USER: postgres
-      DB_PASSWORD: ${SHARED_DB_PASSWORD:-postgres}
-      GRPC_PORT: 50052
-      HTTP_PORT: 3002
-    depends_on:
-      shared-db:
-        condition: service_healthy
-    networks:
-      - jam-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3002/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
   fundflow-service:
     build:
-      context: .
-      dockerfile: services/fundflow-service/Dockerfile
+      context: ./services/fundflow-service/backend
+      dockerfile: Dockerfile
     container_name: jam-fundflow-service
     profiles: ["dev", "prod", "fundflow"]
     ports:
       - "${FUNDFLOW_HTTP_PORT:-3003}:3003"
       - "${FUNDFLOW_GRPC_PORT:-50053}:50053"
     environment:
-      NODE_ENV: ${NODE_ENV:-production}
-      DB_TYPE: postgres
+      HTTP_PORT: 3003
+      GRPC_PORT: 50053
       DB_HOST: fundflow-db
       DB_PORT: 5432
       DB_NAME: fundflow
       DB_USER: postgres
       DB_PASSWORD: ${FUNDFLOW_DB_PASSWORD:-postgres}
-      GRPC_PORT: 50053
-      HTTP_PORT: 3003
     depends_on:
       fundflow-db:
         condition: service_healthy
     networks:
       - jam-network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3003/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
-  # ===== FRONTEND =====
-
-  frontend:
+  fundflow-frontend:
     build:
       context: .
-      dockerfile: frontend/Dockerfile
-    container_name: jam-frontend
-    profiles: ["dev", "prod", "frontend"]
-    ports:
-      - "${FRONTEND_PORT:-3010}:3000"
+      dockerfile: services/fundflow-service/frontend/Dockerfile
+    container_name: jam-fundflow-frontend
+    profiles: ["dev", "prod", "fundflow"]
     environment:
       NODE_ENV: ${NODE_ENV:-production}
-      AUTH_SERVICE_URL: auth-service:50051
-      TODOS_SERVICE_URL: todos-service:50052
-      FUNDFLOW_SERVICE_URL: fundflow-service:50053
+      FUNDFLOW_GRPC_URL: fundflow-service:50053
     depends_on:
-      - auth-service
-      - todos-service
       - fundflow-service
     networks:
       - jam-network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   # ===== EMAIL TESTING (Development Only) =====
 
@@ -229,21 +295,6 @@ services:
     ports:
       - "${MAILPIT_UI_PORT:-8030}:8025"
       - "${MAILPIT_SMTP_PORT:-1030}:1025"
-    networks:
-      - jam-network
-    restart: unless-stopped
-
-  # ===== DATABASE MANAGEMENT UI (Development Only) =====
-
-  adminer:
-    image: adminer:latest
-    container_name: jam-adminer
-    profiles: ["dev", "database-ui"]
-    ports:
-      - "${ADMINER_PORT:-8080}:8080"
-    environment:
-      ADMINER_DEFAULT_SERVER: auth-db
-      ADMINER_DESIGN: nette
     networks:
       - jam-network
     restart: unless-stopped

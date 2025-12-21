@@ -23,8 +23,13 @@ service AuthService {
   rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
 
   // Password Management
-  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
+  rpc RequestPasswordReset(RequestPasswordResetRequest) returns (RequestPasswordResetResponse);
+  rpc VerifyResetCode(VerifyResetCodeRequest) returns (VerifyResetCodeResponse);
+  rpc CompletePasswordReset(CompletePasswordResetRequest) returns (CompletePasswordResetResponse);
   rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse);
+
+  // Email Verification
+  rpc VerifyEmailChange(VerifyEmailChangeRequest) returns (VerifyEmailChangeResponse);
 }
 
 // Login Messages
@@ -167,20 +172,46 @@ message UpdateProfileRequest {
   string user_id = 1;
   string display_name = 2;
   string avatar_url = 3;
+  string phone_number = 4;
+  string bio = 5;
+  string new_email = 6;
 }
 
 message UpdateProfileResponse {
   bool success = 1;
   User user = 2;
   string error = 3;
+  bool email_verification_sent = 4;
 }
 
 // Password Management
-message ResetPasswordRequest {
+message RequestPasswordResetRequest {
   string email = 1;
 }
 
-message ResetPasswordResponse {
+message RequestPasswordResetResponse {
+  bool success = 1;
+  string error = 2;
+  int32 retry_after_seconds = 3;
+}
+
+message VerifyResetCodeRequest {
+  string email = 1;
+  string code = 2;
+}
+
+message VerifyResetCodeResponse {
+  bool success = 1;
+  string error = 2;
+  string reset_token = 3;
+}
+
+message CompletePasswordResetRequest {
+  string reset_token = 1;
+  string new_password = 2;
+}
+
+message CompletePasswordResetResponse {
   bool success = 1;
   string error = 2;
 }
@@ -189,11 +220,24 @@ message ChangePasswordRequest {
   string user_id = 1;
   string old_password = 2;
   string new_password = 3;
+  string current_token = 4;
 }
 
 message ChangePasswordResponse {
   bool success = 1;
   string error = 2;
+}
+
+// Email Verification
+message VerifyEmailChangeRequest {
+  string user_id = 1;
+  string verification_code = 2;
+}
+
+message VerifyEmailChangeResponse {
+  bool success = 1;
+  string error = 2;
+  User user = 3;
 }
 
 // Common User Message
@@ -204,4 +248,7 @@ message User {
   string avatar_url = 4;
   bool two_factor_enabled = 5;
   string created_at = 6;
+  string phone_number = 7;
+  string bio = 8;
+  string pending_email = 9;
 }

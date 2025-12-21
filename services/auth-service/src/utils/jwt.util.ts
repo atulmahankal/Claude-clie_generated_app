@@ -10,7 +10,7 @@ import { TokenError } from '@jam/base-app';
 export interface TokenPayload {
   userId: string;
   email: string;
-  type: 'access' | 'refresh';
+  type: 'access' | 'refresh' | 'reset';
 }
 
 export interface TokenPair {
@@ -125,6 +125,49 @@ export class JWTUtil {
         throw new TokenError('Refresh token has expired');
       } else if (error.name === 'JsonWebTokenError') {
         throw new TokenError('Invalid refresh token');
+      } else {
+        throw new TokenError(error.message);
+      }
+    }
+  }
+
+  /**
+   * Generate reset token (short-lived for password resets)
+   */
+  static generateResetToken(userId: string, email: string): string {
+    const payload: TokenPayload = {
+      userId,
+      email,
+      type: 'reset',
+    };
+
+    return jwt.sign(payload, this.SECRET, {
+      expiresIn: '15m', // 15 minutes
+      issuer: 'jam-auth-service',
+      audience: 'jam-app',
+    });
+  }
+
+  /**
+   * Verify reset token
+   */
+  static verifyResetToken(token: string): TokenPayload {
+    try {
+      const payload = jwt.verify(token, this.SECRET, {
+        issuer: 'jam-auth-service',
+        audience: 'jam-app',
+      }) as TokenPayload;
+
+      if (payload.type !== 'reset') {
+        throw new TokenError('Invalid token type');
+      }
+
+      return payload;
+    } catch (error: any) {
+      if (error.name === 'TokenExpiredError') {
+        throw new TokenError('Reset token has expired');
+      } else if (error.name === 'JsonWebTokenError') {
+        throw new TokenError('Invalid reset token');
       } else {
         throw new TokenError(error.message);
       }

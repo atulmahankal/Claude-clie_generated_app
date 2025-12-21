@@ -11,6 +11,10 @@ import {
 import { UserModel, CreateUserData } from '../models/user.model';
 import { SessionModel } from '../models/session.model';
 import { LoginHistoryModel } from '../models/login-history.model';
+import { PasswordResetModel } from '../models/password-reset.model';
+import { RateLimiter } from '../utils/rate-limiter.util';
+import { VerificationCodeUtil } from '../utils/verification-code.util';
+import { EmailUtil } from '../utils/email.util';
 import { JWTUtil, TokenPair } from '../utils/jwt.util';
 import { TwoFactorUtil, TwoFactorSetup } from '../utils/two-factor.util';
 
@@ -48,12 +52,16 @@ export class AuthController {
   private userModel: UserModel;
   private sessionModel: SessionModel;
   private loginHistoryModel: LoginHistoryModel;
+  private passwordResetModel: PasswordResetModel;
+  private rateLimiter: RateLimiter;
   private logger: Logger;
 
   constructor(db: DatabaseAdapter) {
     this.userModel = new UserModel(db);
     this.sessionModel = new SessionModel(db);
     this.loginHistoryModel = new LoginHistoryModel(db);
+    this.passwordResetModel = new PasswordResetModel(db);
+    this.rateLimiter = new RateLimiter(db);
     this.logger = Logger.getInstance();
   }
 
@@ -450,17 +458,67 @@ export class AuthController {
   async updateProfile(
     userId: string,
     displayName?: string,
-    avatarUrl?: string
-  ): Promise<{ success: boolean; user?: any; error?: string }> {
+    avatarUrl?: string,
+    phoneNumber?: string,
+    bio?: string,
+    newEmail?: string
+  ): Promise<{
+    success: boolean;
+    user?: any;
+    emailVerificationSent?: boolean;
+    error?: string;
+  }> {
     try {
+      let emailVerificationSent = false;
+
+      // Update basic profile fields
       const user = await this.userModel.update(userId, {
         display_name: displayName,
         avatar_url: avatarUrl,
+        phone_number: phoneNumber,
+        bio: bio,
       });
+
+      // Handle email change with verification
+      if (newEmail) {
+        // Validate email format
+        if (!this.isValidEmail(newEmail)) {
+          throw new ValidationError('Invalid email format');
+        }
+
+        // Check if email is already in use
+        const emailAvailable = await this.userModel.isEmailAvailable(newEmail, userId);
+        if (!emailAvailable) {
+          throw new ConflictError('Email already in use');
+        }
+
+        // Generate verification code
+        const verificationCode = VerificationCodeUtil.generateSixDigitCode();
+        const expiresAt = VerificationCodeUtil.getCodeExpiration(15);
+
+        // Store pending email and code
+        await this.userModel.setPendingEmail(
+          userId,
+          newEmail,
+          verificationCode,
+          expiresAt
+        );
+
+        // Send verification email to NEW email address
+        await EmailUtil.sendEmailVerificationCode(
+          newEmail,
+          verificationCode,
+          user.display_name
+        );
+
+        emailVerificationSent = true;
+        this.logger.info('Email verification sent', { userId, newEmail });
+      }
 
       return {
         success: true,
         user: this.userModel.toSafeUser(user),
+        emailVerificationSent,
       };
     } catch (error: any) {
       return {
@@ -476,7 +534,8 @@ export class AuthController {
   async changePassword(
     userId: string,
     oldPassword: string,
-    newPassword: string
+    newPassword: string,
+    currentToken?: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
       if (!this.isStrongPassword(newPassword)) {
@@ -485,18 +544,266 @@ export class AuthController {
         );
       }
 
+      const user = await this.userModel.findByIdOrFail(userId);
       await this.userModel.updatePassword(userId, oldPassword, newPassword);
 
-      // Revoke all sessions except current (security measure)
-      // In a real implementation, you'd keep the current session
+      // Revoke sessions based on security policy
+      if (currentToken) {
+        // Password change: Keep current session, revoke all others
+        const currentSession = await this.sessionModel.findByToken(currentToken);
+        if (currentSession) {
+          await this.sessionModel.revokeAllExcept(
+            userId,
+            currentSession.id,
+            'password_changed'
+          );
+          this.logger.info('Password changed - other sessions revoked', { userId });
+        }
+      } else {
+        // No current session provided: Revoke all sessions
+        await this.sessionModel.revokeAllForUser(userId, 'password_changed');
+        this.logger.info('Password changed - all sessions revoked', { userId });
+      }
 
-      this.logger.info('Password changed', { userId });
+      // Send notification email
+      await EmailUtil.sendPasswordChangedNotification(user.email);
 
       return { success: true };
     } catch (error: any) {
       return {
         success: false,
         error: error.message || 'Failed to change password',
+      };
+    }
+  }
+
+  /**
+   * Request password reset
+   * Sends a 6-digit code to user's email
+   */
+  async requestPasswordReset(
+    email: string,
+    ipAddress?: string
+  ): Promise<{ success: boolean; error?: string; retryAfterSeconds?: number }> {
+    try {
+      // Check rate limit
+      const rateLimit = await this.rateLimiter.checkAndRecordPasswordReset(email);
+
+      if (!rateLimit.allowed) {
+        this.logger.warn('Password reset rate limit exceeded', { email, ipAddress });
+        return {
+          success: false,
+          error: 'Too many password reset requests. Please try again later.',
+          retryAfterSeconds: rateLimit.retryAfterSeconds,
+        };
+      }
+
+      // Find user by email
+      const user = await this.userModel.findByEmail(email);
+
+      if (!user) {
+        // Don't reveal that the user doesn't exist (security best practice)
+        // Return success but don't actually send email
+        this.logger.warn('Password reset requested for non-existent email', {
+          email,
+          ipAddress,
+        });
+        return { success: true };
+      }
+
+      // Generate 6-digit code
+      const code = VerificationCodeUtil.generateSixDigitCode();
+      const expiresAt = VerificationCodeUtil.getCodeExpiration(15);
+
+      // Invalidate any existing reset codes for this user
+      await this.passwordResetModel.invalidateAllForUser(user.id);
+
+      // Create new reset code
+      await this.passwordResetModel.create(user.id, code, expiresAt);
+
+      // Generate reset URL with email pre-filled
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3010';
+      const resetUrl = `${frontendUrl}/reset-password?email=${encodeURIComponent(email)}`;
+
+      // Send email with code and URL
+      await EmailUtil.sendPasswordResetEmail(email, code, resetUrl);
+
+      this.logger.info('Password reset email sent', { userId: user.id, email });
+
+      return { success: true };
+    } catch (error: any) {
+      this.logger.error('Password reset request failed', error, { email });
+
+      return {
+        success: false,
+        error: error.message || 'Failed to request password reset',
+      };
+    }
+  }
+
+  /**
+   * Verify reset code
+   * Returns a temporary JWT token if code is valid
+   */
+  async verifyResetCode(
+    email: string,
+    code: string
+  ): Promise<{ success: boolean; resetToken?: string; error?: string }> {
+    try {
+      // Find user
+      const user = await this.userModel.findByEmail(email);
+
+      if (!user) {
+        throw new NotFoundError('User', email);
+      }
+
+      // Validate code
+      const validation = await this.passwordResetModel.validateCode(code, user.id);
+
+      if (!validation.valid || !validation.resetCode) {
+        throw new ValidationError(validation.error || 'Invalid or expired reset code');
+      }
+
+      // Generate temporary reset token (15 min expiry)
+      const resetToken = JWTUtil.generateResetToken(user.id, user.email);
+
+      this.logger.info('Reset code verified', { userId: user.id });
+
+      return {
+        success: true,
+        resetToken,
+      };
+    } catch (error: any) {
+      this.logger.error('Reset code verification failed', error, { email });
+
+      // Increment attempts if code exists
+      const user = await this.userModel.findByEmail(email);
+      if (user) {
+        try {
+          const resetCodes = await this.passwordResetModel.getAllForUser(user.id);
+          const validCode = resetCodes.find((rc) => rc.code === code && !rc.used);
+          if (validCode) {
+            await this.passwordResetModel.incrementAttempts(validCode.id);
+          }
+        } catch (e) {
+          // Ignore errors from incrementing attempts
+        }
+      }
+
+      return {
+        success: false,
+        error: error.message || 'Failed to verify reset code',
+      };
+    }
+  }
+
+  /**
+   * Complete password reset
+   * Uses the reset token to set new password
+   */
+  async completePasswordReset(
+    resetToken: string,
+    newPassword: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Verify reset token
+      const payload = JWTUtil.verifyResetToken(resetToken);
+
+      // Validate password strength
+      if (!this.isStrongPassword(newPassword)) {
+        throw new ValidationError(
+          'Password must be at least 8 characters long and contain uppercase, lowercase, number, and special character'
+        );
+      }
+
+      const user = await this.userModel.findByIdOrFail(payload.userId);
+
+      // Update password (bypass old password check)
+      await this.userModel.resetPassword(payload.userId, newPassword);
+
+      // Mark reset code as used
+      const resetCodes = await this.passwordResetModel.getAllForUser(payload.userId);
+      const activeCode = resetCodes.find((rc) => !rc.used);
+      if (activeCode) {
+        await this.passwordResetModel.markAsUsed(activeCode.id);
+      }
+
+      // Revoke ALL sessions (security breach scenario - password was forgotten)
+      await this.sessionModel.revokeAllForUser(payload.userId, 'password_reset');
+
+      // Send notification email
+      await EmailUtil.sendAllSessionsRevokedNotification(user.email);
+
+      this.logger.info('Password reset completed', { userId: payload.userId });
+
+      return { success: true };
+    } catch (error: any) {
+      this.logger.error('Password reset completion failed', error);
+
+      return {
+        success: false,
+        error: error.message || 'Failed to reset password',
+      };
+    }
+  }
+
+  /**
+   * Verify email change
+   * Completes the email change process
+   */
+  async verifyEmailChange(
+    userId: string,
+    code: string
+  ): Promise<{ success: boolean; user?: any; error?: string }> {
+    try {
+      const user = await this.userModel.findByIdOrFail(userId);
+
+      if (!user.pending_email) {
+        throw new ValidationError('No pending email change found');
+      }
+
+      if (!user.email_verification_code) {
+        throw new ValidationError('No verification code found');
+      }
+
+      // Validate code format
+      if (!VerificationCodeUtil.isValidCodeFormat(code)) {
+        throw new ValidationError('Invalid code format');
+      }
+
+      // Check if code matches
+      if (user.email_verification_code !== code) {
+        throw new ValidationError('Invalid verification code');
+      }
+
+      // Check if code is expired
+      if (
+        user.email_verification_expires_at &&
+        VerificationCodeUtil.isExpired(user.email_verification_expires_at)
+      ) {
+        // Clear expired verification
+        await this.userModel.clearPendingEmail(userId);
+        throw new ValidationError('Verification code has expired');
+      }
+
+      // Complete email change
+      const updatedUser = await this.userModel.completePendingEmailChange(userId);
+
+      this.logger.info('Email change verified', {
+        userId,
+        newEmail: updatedUser.email,
+      });
+
+      return {
+        success: true,
+        user: this.userModel.toSafeUser(updatedUser),
+      };
+    } catch (error: any) {
+      this.logger.error('Email verification failed', error, { userId });
+
+      return {
+        success: false,
+        error: error.message || 'Failed to verify email change',
       };
     }
   }

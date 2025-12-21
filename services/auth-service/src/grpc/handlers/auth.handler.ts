@@ -300,17 +300,28 @@ export class AuthHandlers {
     callback: sendUnaryData<any>
   ): Promise<void> => {
     try {
-      const { user_id, display_name, avatar_url } = call.request;
+      const {
+        user_id,
+        display_name,
+        avatar_url,
+        phone_number,
+        bio,
+        new_email,
+      } = call.request;
 
       const result = await this.controller.updateProfile(
         user_id,
         display_name,
-        avatar_url
+        avatar_url,
+        phone_number,
+        bio,
+        new_email
       );
 
       callback(null, {
         success: result.success,
         user: result.user || null,
+        email_verification_sent: result.emailVerificationSent || false,
         error: result.error || '',
       });
     } catch (error: any) {
@@ -320,24 +331,103 @@ export class AuthHandlers {
   };
 
   /**
-   * Reset Password (placeholder - would send email)
+   * Verify Email Change
+   * Completes the email change process
    */
-  resetPassword = async (
+  verifyEmailChange = async (
+    call: ServerUnaryCall<any, any>,
+    callback: sendUnaryData<any>
+  ): Promise<void> => {
+    try {
+      const { user_id, verification_code } = call.request;
+
+      const result = await this.controller.verifyEmailChange(
+        user_id,
+        verification_code
+      );
+
+      callback(null, {
+        success: result.success,
+        user: result.user || null,
+        error: result.error || '',
+      });
+    } catch (error: any) {
+      this.logger.error('gRPC VerifyEmailChange error', error);
+      callback(null, ErrorHandler.handleGrpcError(error));
+    }
+  };
+
+  /**
+   * Request Password Reset
+   * Sends a 6-digit code to user's email
+   */
+  requestPasswordReset = async (
     call: ServerUnaryCall<any, any>,
     callback: sendUnaryData<any>
   ): Promise<void> => {
     try {
       const { email } = call.request;
+      const ipAddress = call.getPeer(); // Get client IP from gRPC metadata
 
-      // TODO: Implement password reset email logic
-      this.logger.info('Password reset requested', { email });
+      const result = await this.controller.requestPasswordReset(email, ipAddress);
 
       callback(null, {
-        success: true,
-        error: '',
+        success: result.success,
+        error: result.error || '',
+        retry_after_seconds: result.retryAfterSeconds || 0,
       });
     } catch (error: any) {
-      this.logger.error('gRPC ResetPassword error', error);
+      this.logger.error('gRPC RequestPasswordReset error', error);
+      callback(null, ErrorHandler.handleGrpcError(error));
+    }
+  };
+
+  /**
+   * Verify Reset Code
+   * Validates the 6-digit code and returns a reset token
+   */
+  verifyResetCode = async (
+    call: ServerUnaryCall<any, any>,
+    callback: sendUnaryData<any>
+  ): Promise<void> => {
+    try {
+      const { email, code } = call.request;
+
+      const result = await this.controller.verifyResetCode(email, code);
+
+      callback(null, {
+        success: result.success,
+        reset_token: result.resetToken || '',
+        error: result.error || '',
+      });
+    } catch (error: any) {
+      this.logger.error('gRPC VerifyResetCode error', error);
+      callback(null, ErrorHandler.handleGrpcError(error));
+    }
+  };
+
+  /**
+   * Complete Password Reset
+   * Uses the reset token to set a new password
+   */
+  completePasswordReset = async (
+    call: ServerUnaryCall<any, any>,
+    callback: sendUnaryData<any>
+  ): Promise<void> => {
+    try {
+      const { reset_token, new_password } = call.request;
+
+      const result = await this.controller.completePasswordReset(
+        reset_token,
+        new_password
+      );
+
+      callback(null, {
+        success: result.success,
+        error: result.error || '',
+      });
+    } catch (error: any) {
+      this.logger.error('gRPC CompletePasswordReset error', error);
       callback(null, ErrorHandler.handleGrpcError(error));
     }
   };
@@ -350,12 +440,13 @@ export class AuthHandlers {
     callback: sendUnaryData<any>
   ): Promise<void> => {
     try {
-      const { user_id, old_password, new_password } = call.request;
+      const { user_id, old_password, new_password, current_token } = call.request;
 
       const result = await this.controller.changePassword(
         user_id,
         old_password,
-        new_password
+        new_password,
+        current_token
       );
 
       callback(null, {

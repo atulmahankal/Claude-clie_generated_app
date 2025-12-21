@@ -16,6 +16,11 @@ export interface User {
   avatar_url: string | null;
   two_factor_enabled: boolean;
   two_factor_secret: string | null;
+  phone_number: string | null;
+  bio: string | null;
+  pending_email: string | null;
+  email_verification_code: string | null;
+  email_verification_expires_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -30,6 +35,11 @@ export interface CreateUserData {
 export interface UpdateUserData {
   display_name?: string;
   avatar_url?: string;
+  phone_number?: string;
+  bio?: string;
+  pending_email?: string;
+  email_verification_code?: string;
+  email_verification_expires_at?: string;
 }
 
 export class UserModel {
@@ -143,6 +153,26 @@ export class UserModel {
       updateData.avatar_url = data.avatar_url;
     }
 
+    if (data.phone_number !== undefined) {
+      updateData.phone_number = data.phone_number;
+    }
+
+    if (data.bio !== undefined) {
+      updateData.bio = data.bio;
+    }
+
+    if (data.pending_email !== undefined) {
+      updateData.pending_email = data.pending_email;
+    }
+
+    if (data.email_verification_code !== undefined) {
+      updateData.email_verification_code = data.email_verification_code;
+    }
+
+    if (data.email_verification_expires_at !== undefined) {
+      updateData.email_verification_expires_at = data.email_verification_expires_at;
+    }
+
     await this.db
       .table(this.tableName)
       .where('id', '=', id)
@@ -227,5 +257,132 @@ export class UserModel {
   toSafeUser(user: User): Omit<User, 'password_hash' | 'two_factor_secret'> {
     const { password_hash, two_factor_secret, ...safeUser } = user;
     return safeUser;
+  }
+
+  /**
+   * Reset password without old password verification
+   * Used during password reset flow
+   */
+  async resetPassword(id: string, newPassword: string): Promise<void> {
+    const newHash = await this.hashPassword(newPassword);
+
+    await this.db
+      .table(this.tableName)
+      .where('id', '=', id)
+      .update({
+        password_hash: newHash,
+        updated_at: new Date().toISOString(),
+      });
+  }
+
+  /**
+   * Set pending email and verification code
+   * Used when user wants to change their email
+   */
+  async setPendingEmail(
+    id: string,
+    newEmail: string,
+    verificationCode: string,
+    expiresAt: Date
+  ): Promise<void> {
+    await this.db
+      .table(this.tableName)
+      .where('id', '=', id)
+      .update({
+        pending_email: newEmail.toLowerCase(),
+        email_verification_code: verificationCode,
+        email_verification_expires_at: expiresAt.toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+  }
+
+  /**
+   * Complete pending email change
+   * Moves pending_email to email and clears verification fields
+   */
+  async completePendingEmailChange(id: string): Promise<User> {
+    const user = await this.findByIdOrFail(id);
+
+    if (!user.pending_email) {
+      throw new Error('No pending email change found');
+    }
+
+    await this.db
+      .table(this.tableName)
+      .where('id', '=', id)
+      .update({
+        email: user.pending_email,
+        pending_email: null,
+        email_verification_code: null,
+        email_verification_expires_at: null,
+        updated_at: new Date().toISOString(),
+      });
+
+    return this.findByIdOrFail(id);
+  }
+
+  /**
+   * Clear pending email and verification code
+   * Used when verification fails or expires
+   */
+  async clearPendingEmail(id: string): Promise<void> {
+    await this.db
+      .table(this.tableName)
+      .where('id', '=', id)
+      .update({
+        pending_email: null,
+        email_verification_code: null,
+        email_verification_expires_at: null,
+        updated_at: new Date().toISOString(),
+      });
+  }
+
+  /**
+   * Update email directly (admin function or verified change)
+   */
+  async updateEmail(id: string, newEmail: string): Promise<User> {
+    // Check if email is already in use
+    const existing = await this.findByEmail(newEmail);
+    if (existing && existing.id !== id) {
+      throw new ConflictError('Email already in use');
+    }
+
+    await this.db
+      .table(this.tableName)
+      .where('id', '=', id)
+      .update({
+        email: newEmail.toLowerCase(),
+        updated_at: new Date().toISOString(),
+      });
+
+    return this.findByIdOrFail(id);
+  }
+
+  /**
+   * Find user by pending email
+   */
+  async findByPendingEmail(email: string): Promise<User | null> {
+    const result = await this.db
+      .table(this.tableName)
+      .where('pending_email', '=', email.toLowerCase())
+      .first<User>();
+
+    return result;
+  }
+
+  /**
+   * Check if email is available (not used by any user)
+   */
+  async isEmailAvailable(email: string, excludeUserId?: string): Promise<boolean> {
+    let query = this.db
+      .table(this.tableName)
+      .where('email', '=', email.toLowerCase());
+
+    if (excludeUserId) {
+      query = query.where('id', '!=', excludeUserId);
+    }
+
+    const result = await query.first();
+    return !result;
   }
 }

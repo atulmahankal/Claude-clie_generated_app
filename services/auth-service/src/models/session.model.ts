@@ -19,6 +19,8 @@ export interface Session {
   expires_at: string;
   created_at: string;
   last_active: string;
+  revoked_at: string | null;
+  revoke_reason: string | null;
 }
 
 export interface CreateSessionData {
@@ -177,7 +179,17 @@ export class SessionModel {
   /**
    * Revoke all sessions for a user
    */
-  async revokeAllForUser(userId: string): Promise<void> {
+  async revokeAllForUser(userId: string, reason?: string): Promise<void> {
+    // First, mark sessions as revoked for audit trail
+    await this.db
+      .table(this.tableName)
+      .where('user_id', '=', userId)
+      .update({
+        revoked_at: new Date().toISOString(),
+        revoke_reason: reason || 'all_sessions_revoked',
+      });
+
+    // Then delete them
     await this.db
       .table(this.tableName)
       .where('user_id', '=', userId)
@@ -187,7 +199,18 @@ export class SessionModel {
   /**
    * Revoke all sessions except current
    */
-  async revokeAllExcept(userId: string, currentSessionId: string): Promise<void> {
+  async revokeAllExcept(userId: string, currentSessionId: string, reason?: string): Promise<void> {
+    // First, mark sessions as revoked for audit trail
+    await this.db
+      .table(this.tableName)
+      .where('user_id', '=', userId)
+      .where('id', '!=', currentSessionId)
+      .update({
+        revoked_at: new Date().toISOString(),
+        revoke_reason: reason || 'other_sessions_revoked',
+      });
+
+    // Then delete them
     await this.db
       .table(this.tableName)
       .where('user_id', '=', userId)

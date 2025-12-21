@@ -62,8 +62,11 @@ export class GrpcServer {
         RevokeSession: authHandlers.revokeSession,
         GetProfile: authHandlers.getProfile,
         UpdateProfile: authHandlers.updateProfile,
-        ResetPassword: authHandlers.resetPassword,
+        RequestPasswordReset: authHandlers.requestPasswordReset,
+        VerifyResetCode: authHandlers.verifyResetCode,
+        CompletePasswordReset: authHandlers.completePasswordReset,
         ChangePassword: authHandlers.changePassword,
+        VerifyEmailChange: authHandlers.verifyEmailChange,
       });
 
       this.logger.info('gRPC services loaded successfully');

@@ -1,399 +1,518 @@
-# Setup Guide
+# Setup Guide - JAM Stack Microservices Application
 
-This guide will walk you through setting up the JAM Stack Application from scratch.
+Complete setup guide for the JAM stack microservices application.
 
-## Choose Your Setup Method
+## Prerequisites
 
-You have two options for running Supabase:
+Before you begin, ensure you have:
 
-### Option A: Local Development with Docker (Recommended for beginners)
-- ✅ Everything runs locally on your machine
-- ✅ No cloud account needed
-- ✅ Faster setup
-- ✅ Includes Supabase Studio UI at http://localhost:3001
-- ✅ Perfect for development and testing
-- ❌ Not suitable for production deployment
+- **Docker Desktop** installed and running ([download here](https://www.docker.com/products/docker-desktop/))
+- **Node.js** >= 20.0.0 ([download here](https://nodejs.org/))
+- **npm** >= 10.0.0 (comes with Node.js)
+- **Git** for version control
 
-**Go to: [Local Docker Setup](#local-docker-setup)**
+## Quick Start (5 Minutes)
 
-### Option B: Supabase Cloud (Recommended for production)
-- ✅ Managed hosting (no infrastructure management)
-- ✅ Automatic backups and updates
-- ✅ Production-ready with CDN
-- ✅ Free tier available
-- ❌ Requires internet connection
-- ❌ Slightly more complex initial setup
-
-**Go to: [Cloud Setup](#cloud-setup)**
-
----
-
-## Local Docker Setup
-
-This method runs the entire stack (Next.js + Supabase) locally using Docker.
-
-### Prerequisites
-
-1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-2. Ensure Docker is running
-
-### Quick Start
-
-1. **Copy the local environment template:**
-   ```bash
-   cp .env.local.example .env.local
-   ```
-
-2. **Start all services:**
-   ```bash
-   docker-compose -f docker-compose.local.yml up
-   ```
-
-   This will start:
-   - PostgreSQL database on port `5432`
-   - Supabase Studio (Web UI) on port `3001`
-   - Supabase API Gateway on port `8000`
-   - Next.js application on port `3000`
-
-3. **Wait for services to be healthy:**
-   - First run takes 2-5 minutes to pull images and start services
-   - Watch the logs for "ready" messages from each service
-
-4. **Access the application:**
-   - **Next.js App**: http://localhost:3000
-   - **Supabase Studio**: http://localhost:3001
-   - **Supabase API**: http://localhost:8000
-
-### Run Migrations in Docker
-
-The migrations will automatically run when the database first starts. If you need to re-run them:
-
-**Option 1: Using Supabase Studio (Recommended)**
-
-1. Open http://localhost:3001
-2. Navigate to **SQL Editor**
-3. Copy and paste each migration file content from `supabase/migrations/` in order:
-   - `001_initial_schema.sql`
-   - `002_rls_policies.sql`
-   - `003_indexes.sql`
-   - `004_functions.sql`
-4. Click **RUN** for each migration
-
-**Option 2: Using Docker exec**
+### 1. Clone and Configure
 
 ```bash
-# Connect to the database container
-docker exec -i supabase-db psql -U postgres -d postgres < supabase/migrations/001_initial_schema.sql
-docker exec -i supabase-db psql -U postgres -d postgres < supabase/migrations/002_rls_policies.sql
-docker exec -i supabase-db psql -U postgres -d postgres < supabase/migrations/003_indexes.sql
-docker exec -i supabase-db psql -U postgres -d postgres < supabase/migrations/004_functions.sql
+# Clone the repository (if not already done)
+git clone <repository-url>
+cd jam-stack-application
+
+# Create environment configuration
+cp .env.example .env
 ```
 
-### Verify Local Setup
-
-1. Open Supabase Studio at http://localhost:3001
-2. Check the **Table Editor** - you should see all tables
-3. Try the Next.js app at http://localhost:3000
-
-### Stopping and Restarting
+### 2. Start All Services
 
 ```bash
-# Stop all services (keeps data)
-docker-compose -f docker-compose.local.yml down
+# Start all services in development mode
+npm run dev
 
-# Stop and remove all data (fresh start)
-docker-compose -f docker-compose.local.yml down -v
-
-# View logs
-docker-compose -f docker-compose.local.yml logs -f
-
-# Restart specific service
-docker-compose -f docker-compose.local.yml restart app
+# Or rebuild if this is your first time
+npm run dev:build
 ```
 
-### Local Docker Troubleshooting
+This single command starts:
+- ✅ 3 PostgreSQL databases
+- ✅ 3 Backend microservices (Auth, Todos, Fundflow)
+- ✅ 1 Next.js frontend
+- ✅ Kong API gateway
+- ✅ Mailpit email testing tool
 
-**Services won't start:**
+### 3. Access the Application
+
+**Wait 30-60 seconds** for all services to start, then access:
+
+- **Frontend**: http://localhost:3010
+- **Kong Gateway**: http://localhost:8010
+- **Kong Admin**: http://localhost:8011
+- **Mailpit (Emails)**: http://localhost:8030
+
+**Health Checks:**
+- Auth: http://localhost:3011/health
+- Todos: http://localhost:3002/health
+- Fundflow: http://localhost:3003/health
+
+All should return `{"status":"healthy"}`.
+
+## Detailed Setup
+
+### Understanding the Architecture
+
+This application uses a **microservices architecture**:
+
+```
+┌─────────────┐
+│   Browser   │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────┐     ┌──────────────┐
+│    Kong     │────▶│   Frontend   │
+│  (Gateway)  │     │  (Next.js)   │
+└──────┬──────┘     └──────────────┘
+       │
+       ├────────┬────────┬────────┐
+       ▼        ▼        ▼        ▼
+   ┌──────┐ ┌──────┐ ┌──────┐ ┌───────┐
+   │ Auth │ │Todos │ │Fund  │ │Mail   │
+   │      │ │      │ │flow  │ │pit    │
+   └───┬──┘ └───┬──┘ └───┬──┘ └───────┘
+       │        │        │
+       ▼        ▼        ▼
+    ┌────┐   ┌────┐   ┌────┐
+    │DB  │   │DB  │   │DB  │
+    └────┘   └────┘   └────┘
+```
+
+**Key Benefits:**
+- Each service scales independently
+- Database-per-service isolation
+- gRPC for fast inter-service communication
+- Kong gateway for unified HTTP access
+
+### Environment Configuration
+
+The `.env` file controls all ports and configuration. Default values:
+
+```bash
+# Deployment mode
+NODE_ENV=production
+
+# Database ports
+AUTH_DB_PORT=5433
+SHARED_DB_PORT=5435
+FUNDFLOW_DB_PORT=5434
+
+# Service ports
+AUTH_HTTP_PORT=3011
+TODOS_HTTP_PORT=3002
+FUNDFLOW_HTTP_PORT=3003
+FRONTEND_PORT=3010
+
+# Gateway ports
+KONG_PROXY_PORT=8010
+KONG_ADMIN_PORT=8011
+
+# Email testing
+MAILPIT_UI_PORT=8030
+MAILPIT_SMTP_PORT=1030
+```
+
+**Change ports if needed:**
+```bash
+# Edit .env
+FRONTEND_PORT=4000  # Change frontend to port 4000
+```
+
+### Service Profiles
+
+The unified `docker-compose.yml` supports selective service startup:
+
+```bash
+# All development services
+npm run dev
+
+# All production services (no Mailpit)
+npm run prod
+
+# Individual services
+npm run service:auth      # Just auth service + database
+npm run service:todos     # Just todos service + database
+npm run service:frontend  # Just frontend (requires services)
+
+# Custom combinations
+docker compose --profile auth --profile frontend up
+```
+
+### Database Management
+
+#### Accessing Databases
+
+```bash
+# Auth database
+docker exec -it jam-auth-db psql -U postgres -d auth
+
+# Todos database (shared)
+docker exec -it jam-shared-db psql -U postgres -d shared
+
+# Fundflow database
+docker exec -it jam-fundflow-db psql -U postgres -d fundflow
+```
+
+#### Migrations
+
+Migrations run automatically on first container start:
+
+```bash
+# Location of migration files
+services/auth-service/migrations/
+services/todos-service/migrations/
+services/fundflow-service/migrations/
+```
+
+**Manual migration** (within service directory):
+```bash
+cd services/auth-service
+npm run migrate
+```
+
+#### Database Volumes
+
+Data persists in Docker volumes:
+- `jam-stack-microservices_auth-db-data`
+- `jam-stack-microservices_shared-db-data`
+- `jam-stack-microservices_fundflow-db-data`
+
+**Backup a database:**
+```bash
+docker run --rm \
+  -v jam-stack-microservices_auth-db-data:/data \
+  -v $(pwd):/backup \
+  alpine tar czf /backup/auth-db-backup.tar.gz -C /data .
+```
+
+**Restore from backup:**
+```bash
+docker run --rm \
+  -v jam-stack-microservices_auth-db-data:/data \
+  -v $(pwd):/backup \
+  alpine tar xzf /backup/auth-db-backup.tar.gz -C /data
+```
+
+### Development Workflow
+
+#### Making Code Changes
+
+Different components require different rebuild strategies:
+
+**Backend Services:**
+```bash
+# Code changes require rebuild
+npm run dev:build
+
+# Or restart specific service
+docker compose restart auth-service
+```
+
+**Frontend:**
+```bash
+# For development with hot-reload, run frontend standalone
+cd frontend
+npm run dev
+
+# Or rebuild the container
+npm run dev:build
+```
+
+**Shared Packages:**
+```bash
+# Changes in packages/ require rebuilding dependent services
+cd packages/database-engine
+npm run build
+
+# Then rebuild services that use it
+npm run dev:build
+```
+
+**gRPC Protocols:**
+```bash
+# Regenerate proto files
+npm run proto:generate
+
+# Rebuild affected services
+npm run dev:build
+```
+
+#### Viewing Logs
+
+```bash
+# All services
+npm run logs
+
+# Specific service
+npm run logs:auth
+npm run logs:frontend
+npm run logs:kong
+
+# Or use Docker Compose directly
+docker compose logs -f auth-service
+docker compose logs -f frontend --tail=100
+```
+
+#### Stopping Services
+
+```bash
+# Stop (preserves data)
+npm stop
+
+# Stop and remove containers (preserves volumes/data)
+npm run dev:down
+
+# Nuclear option - removes EVERYTHING including data
+npm run clean
+```
+
+### Testing the Setup
+
+#### 1. Verify All Services Running
+
+```bash
+docker ps
+```
+
+Should show 9 containers running:
+- jam-auth-db, jam-shared-db, jam-fundflow-db (databases)
+- jam-auth-service, jam-todos-service, jam-fundflow-service (services)
+- jam-frontend (Next.js)
+- jam-kong (gateway)
+- jam-mailpit (email)
+
+#### 2. Health Check All Services
+
+```bash
+# Check all health endpoints
+curl http://localhost:3011/health  # Auth
+curl http://localhost:3002/health  # Todos
+curl http://localhost:3003/health  # Fundflow
+```
+
+Each should return:
+```json
+{"status":"healthy","timestamp":"...","service":"..."}
+```
+
+#### 3. Test Gateway Routing
+
+```bash
+# Frontend through Kong
+curl http://localhost:8010/ | head -20
+
+# Direct frontend access
+curl http://localhost:3010/ | head -20
+
+# Kong admin API
+curl http://localhost:8011/services
+```
+
+#### 4. Test Email System
+
+1. Open Mailpit UI: http://localhost:8030
+2. You should see the Mailpit dashboard
+3. All emails sent by the app appear here during development
+
+## Troubleshooting
+
+### Services Won't Start
+
 ```bash
 # Check Docker is running
 docker ps
 
 # Check for port conflicts
-lsof -i :3000  # Next.js
-lsof -i :3001  # Studio
-lsof -i :8000  # Supabase API
-lsof -i :5432  # PostgreSQL
+sudo lsof -i :3010  # Frontend
+sudo lsof -i :8010  # Kong
+sudo lsof -i :5433  # Auth DB
 
 # View service status
-docker-compose -f docker-compose.local.yml ps
+docker compose ps
+
+# Check logs for errors
+docker compose logs
 ```
 
-**Database connection errors:**
-```bash
-# Check database is healthy
-docker exec -it supabase-db pg_isready -U postgres
-
-# View database logs
-docker logs supabase-db
-```
-
-**Reset everything:**
-```bash
-# Nuclear option - removes all containers and volumes
-docker-compose -f docker-compose.local.yml down -v
-docker system prune -a --volumes
-```
-
----
-
-## Cloud Setup
-
-### Step 1: Supabase Project Setup
-
-### Create a Supabase Project
-
-1. Go to [supabase.com](https://supabase.com) and sign in (or create an account)
-2. Click **"New Project"**
-3. Fill in the details:
-   - **Name**: `jam-stack-app` (or your preferred name)
-   - **Database Password**: Choose a strong password (save this!)
-   - **Region**: Select closest to your users
-   - **Pricing Plan**: Free tier is sufficient for development
-4. Click **"Create new project"**
-5. Wait 2-3 minutes for the project to be provisioned
-
-### Get Your API Credentials
-
-1. Once the project is ready, go to **Project Settings** (gear icon in sidebar)
-2. Click **API** in the left sidebar
-3. You'll see:
-   - **Project URL**: Copy this (e.g., `https://xxxxx.supabase.co`)
-   - **Project API keys**:
-     - `anon` `public` key: Copy this (safe to use in browser)
-     - `service_role` key: Copy this (keep secret, server-side only)
-
-### Configure Environment Variables
-
-1. In your project root, copy the example file:
-   ```bash
-   cp .env.example .env.local
-   ```
-
-2. Edit `.env.local` and add your credentials:
-   ```env
-   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
-   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
-   NEXT_PUBLIC_APP_URL=http://localhost:3000
-   ```
-
-## Step 2: Run Database Migrations
-
-### Method 1: Using Supabase Dashboard (Recommended for beginners)
-
-1. In Supabase Dashboard, click **SQL Editor** in the left sidebar
-2. Click **"New query"**
-3. Open `supabase/migrations/001_initial_schema.sql` in your code editor
-4. Copy the entire contents
-5. Paste into the SQL Editor
-6. Click **"Run"** (or press `Cmd/Ctrl + Enter`)
-7. You should see "Success. No rows returned"
-
-8. Repeat for the remaining migration files **in order**:
-   - `002_rls_policies.sql`
-   - `003_indexes.sql`
-   - `004_functions.sql`
-
-### Method 2: Using Supabase CLI (Advanced)
-
-If you have the Supabase CLI installed:
+### Database Connection Errors
 
 ```bash
-# Link your project
-supabase link --project-ref your-project-ref
+# Verify database is healthy
+docker ps | grep -E "jam-(auth|shared|fundflow)-db"
 
-# Run migrations
-supabase db push
+# Should show "(healthy)" in STATUS column
+
+# Check database logs
+docker logs jam-auth-db
 ```
 
-### Verify Migrations
-
-1. Go to **Table Editor** in the Supabase Dashboard
-2. You should see all tables:
-   - profiles
-   - login_history
-   - active_sessions
-   - todo_lists
-   - todos
-   - transaction_categories
-   - transactions
-   - recurring_transactions
-   - transaction_reminders
-
-## Step 3: Configure Authentication
-
-### Email/Password Authentication
-
-Email authentication is enabled by default in Supabase.
-
-**Optional: Customize Email Templates**
-
-1. Go to **Authentication** > **Email Templates**
-2. Customize the templates for:
-   - Confirm signup
-   - Magic Link
-   - Reset Password
-   - Email Change
-
-### Enable OAuth Providers (Optional)
-
-#### Google OAuth
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select existing
-3. Enable **Google+ API**
-4. Go to **Credentials** > **Create Credentials** > **OAuth client ID**
-5. Configure OAuth consent screen if prompted
-6. Choose **Web application**
-7. Add authorized redirect URIs:
-   ```
-   https://your-project.supabase.co/auth/v1/callback
-   ```
-8. Copy the **Client ID** and **Client Secret**
-9. In Supabase Dashboard:
-   - Go to **Authentication** > **Providers**
-   - Find **Google** and toggle it on
-   - Paste your Client ID and Client Secret
-   - Save
-
-#### GitHub OAuth
-
-1. Go to [GitHub Settings](https://github.com/settings/developers)
-2. Click **OAuth Apps** > **New OAuth App**
-3. Fill in the details:
-   - **Application name**: JAM Stack App
-   - **Homepage URL**: `http://localhost:3000` (or your domain)
-   - **Authorization callback URL**: `https://your-project.supabase.co/auth/v1/callback`
-4. Click **Register application**
-5. Copy the **Client ID**
-6. Click **Generate a new client secret** and copy it
-7. In Supabase Dashboard:
-   - Go to **Authentication** > **Providers**
-   - Find **GitHub** and toggle it on
-   - Paste your Client ID and Client Secret
-   - Save
-
-## Step 4: Start Development Server
+### Build Failures
 
 ```bash
-npm run dev
+# Clean everything and rebuild
+npm run clean
+npm run dev:build
+
+# If that fails, nuclear option
+docker system prune -af --volumes
+npm run dev:build
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+### Port Already in Use
 
-## Step 5: Test the Setup
+Edit `.env` to change ports:
+```bash
+FRONTEND_PORT=3020
+KONG_PROXY_PORT=8020
+# ... etc
+```
 
-1. You should see the default Next.js page
-2. Try accessing `/dashboard` - you should be redirected to `/login` (middleware working)
-3. The app is ready for development!
-
-## Next Steps
-
-Now that the foundation is set up, you can start building:
-
-1. **Phase 2**: Authentication pages (login, signup, OAuth)
-2. **Phase 3**: Dashboard layout and navigation
-3. **Phase 4**: Todo system
-4. **Phase 5-6**: Fundflow tracker
-5. **Phase 7**: Recurring transactions and reminders
-
-Refer to `README.md` for the complete roadmap.
-
-## Troubleshooting
-
-### "Invalid API key" error
-
-- Check that your `.env.local` file has the correct credentials
-- Restart the dev server after changing `.env.local`
-- Make sure you're using the `anon` key, not the `service_role` key for NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-### Migration errors
-
-- Run migrations in order (001, 002, 003, 004)
-- Check for syntax errors in the SQL
-- Verify you have the correct permissions in Supabase
-
-### OAuth not working
-
-- Check redirect URLs match exactly
-- Verify OAuth apps are approved (Google may require verification for production)
-- Check browser console for errors
-
-### Module not found errors
-
-- Run `npm install` to ensure all dependencies are installed
-- Delete `node_modules` and `package-lock.json`, then run `npm install` again
-
-## Useful Commands
+### Services Stuck in Restart Loop
 
 ```bash
-# Start development
-npm run dev
+# Check logs for the failing service
+docker logs jam-auth-service --tail=50
 
-# Build for production
-npm run build
-
-# Start production server
-npm start
-
-# Lint code
-npm run lint
-
-# Type check
-npx tsc --noEmit
-```
-
-## Database Management
-
-### Viewing Data
-
-Use the **Table Editor** in Supabase Dashboard to view and edit data.
-
-### Backing Up Data
-
-1. Go to **Database** > **Backups** in Supabase Dashboard
-2. Enable automatic backups (recommended for production)
-3. You can also export data using the **SQL Editor**:
-   ```sql
-   COPY (SELECT * FROM todos) TO STDOUT WITH CSV HEADER;
-   ```
-
-### Resetting Database
-
-**Warning: This will delete all data!**
-
-```sql
--- Run in SQL Editor to drop all tables
-DROP TABLE IF EXISTS transaction_reminders CASCADE;
-DROP TABLE IF EXISTS transactions CASCADE;
-DROP TABLE IF EXISTS recurring_transactions CASCADE;
-DROP TABLE IF EXISTS transaction_categories CASCADE;
-DROP TABLE IF EXISTS todos CASCADE;
-DROP TABLE IF EXISTS todo_lists CASCADE;
-DROP TABLE IF EXISTS active_sessions CASCADE;
-DROP TABLE IF EXISTS login_history CASCADE;
-DROP TABLE IF EXISTS profiles CASCADE;
-
--- Then re-run all migrations
+# Common issues:
+# - Database not ready (wait 30s)
+# - Missing environment variables (check .env)
+# - Port conflicts (change ports in .env)
 ```
 
 ## Production Deployment
 
-See the deployment section in `README.md` for instructions on deploying to Vercel.
+### Environment Setup
 
-## Support
+```bash
+# Create production .env
+cp .env.example .env.prod
 
-For issues or questions:
-- Check the [Next.js documentation](https://nextjs.org/docs)
-- Check the [Supabase documentation](https://supabase.com/docs)
-- Review the implementation plan in `.claude/plans/vast-twirling-stream.md`
+# Edit for production
+NODE_ENV=production
+# Set secure database passwords
+AUTH_DB_PASSWORD=<secure-password>
+SHARED_DB_PASSWORD=<secure-password>
+FUNDFLOW_DB_PASSWORD=<secure-password>
+```
+
+### Deploy
+
+```bash
+# Start in production mode
+NODE_ENV=production npm run prod:build
+```
+
+### Security Checklist
+
+Before deploying to production:
+
+- [ ] Change all default passwords
+- [ ] Use environment-specific .env files
+- [ ] Enable SSL/TLS for Kong
+- [ ] Set up proper CORS policies
+- [ ] Configure rate limiting in Kong
+- [ ] Set up monitoring and logging
+- [ ] Configure automated backups
+- [ ] Use secrets management (not .env)
+- [ ] Set up proper firewall rules
+
+## Advanced Topics
+
+### Custom Service Combinations
+
+```bash
+# Run only backend services (no frontend)
+docker compose --profile auth --profile todos --profile fundflow up
+
+# Run frontend + gateway only (assumes services running elsewhere)
+docker compose --profile frontend --profile gateway up
+```
+
+### Monitoring Resources
+
+```bash
+# Real-time resource usage
+docker stats
+
+# Disk usage
+docker system df
+
+# Clean up unused resources
+docker system prune
+```
+
+### Working with Monorepo
+
+```bash
+# Install all workspace dependencies
+npm run install:all
+
+# Build all packages
+npm run build:all
+
+# Run tests across all workspaces
+npm run test:all
+
+# Add dependency to specific workspace
+npm install express --workspace=services/auth-service
+```
+
+## Next Steps
+
+Now that your environment is set up:
+
+1. **Review Architecture**: See `CLAUDE.md` for detailed architecture
+2. **Development Guide**: Check `README.md` for available commands
+3. **API Documentation**: See `docs/` folder for API specs
+4. **Code Standards**: Review existing code patterns
+
+## Getting Help
+
+- **Documentation**: See `CLAUDE.md` for comprehensive guide
+- **Migration Guide**: See `MIGRATION.md` if migrating from old setup
+- **Common Issues**: Check the Troubleshooting section above
+- **Docker Issues**: `docker compose logs` is your friend
+
+## Useful Commands Reference
+
+```bash
+# Development
+npm run dev                    # Start all services
+npm run dev:build              # Rebuild and start
+npm start                      # Start in background
+npm stop                       # Stop all services
+
+# Production
+npm run prod                   # Production mode
+npm run prod:build             # Build and deploy
+
+# Logs
+npm run logs                   # All logs
+npm run logs:auth              # Specific service
+
+# Cleanup
+npm run clean                  # Remove containers + volumes
+npm run clean:all              # Complete Docker cleanup
+
+# Database
+docker exec -it jam-auth-db psql -U postgres -d auth
+
+# Health checks
+curl http://localhost:3011/health  # Auth
+curl http://localhost:3002/health  # Todos
+curl http://localhost:3003/health  # Fundflow
+```
+
+---
+
+**Setup Status**: Ready for development!
+**Next**: Start coding or review `CLAUDE.md` for architecture details

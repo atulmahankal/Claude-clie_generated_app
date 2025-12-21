@@ -30,153 +30,193 @@ A full-stack web application built with Next.js 14, Supabase, and Tailwind CSS f
 
 ## Tech Stack
 
-- **Frontend**: Next.js 14 (App Router), React, TypeScript, Tailwind CSS
-- **Backend**: Supabase (PostgreSQL + Auth + Real-time)
-- **Charts**: Recharts
-- **Forms**: React Hook Form + Zod validation
+### Frontend
+- **Framework**: Next.js 16 (App Router), React 19, TypeScript
+- **Styling**: Tailwind CSS 4
 - **UI Components**: Radix UI primitives
 - **Icons**: Lucide React
+- **Forms**: React Hook Form + Zod validation
+- **State Management**: TanStack Query (React Query)
 - **Notifications**: Sonner
+- **Charts**: Recharts
+
+### Backend (Microservices)
+- **Runtime**: Node.js 20 (Alpine)
+- **Language**: TypeScript 5
+- **Framework**: Express.js
+- **Communication**: gRPC + HTTP/REST
+- **Database**: PostgreSQL 15 (database-per-service)
+- **Validation**: Zod
+- **Authentication**: JWT + 2FA (TOTP)
+
+### Infrastructure
+- **API Gateway**: Kong 3.4
+- **Containerization**: Docker + Docker Compose
+- **Email Testing**: Mailpit (development)
+- **Database Abstraction**: Custom multi-DB engine
 
 ## Getting Started
 
-You have two options for running this application:
+### Prerequisites
 
-### Option A: Docker Setup (Recommended for Quick Start)
+- **Docker Desktop** installed and running
+- **Node.js** >= 20.0.0 and npm >= 10.0.0
+- **Git** for version control
 
-Run the entire stack locally with Docker - no cloud setup required!
+### Quick Start (Docker - Recommended)
 
-**Prerequisites:**
-- Docker Desktop installed and running
-- No Supabase account needed
-
-**Quick Start:**
-```bash
-# Copy local environment template
-cp .env.local.example .env.local
-
-# Start all services (Next.js + Supabase stack)
-docker-compose -f docker-compose.local.yml up
-```
-
-**Access:**
-- Next.js App: http://localhost:3000
-- Supabase Studio (Database UI): http://localhost:3001
-- Supabase API: http://localhost:8000
-
-See [SETUP.md](./SETUP.md#local-docker-setup) for detailed Docker instructions.
-
----
-
-### Option B: Cloud Setup (Recommended for Production)
-
-**Prerequisites:**
-- Node.js 18+ and npm
-- A Supabase account ([sign up here](https://supabase.com))
-
-### 1. Clone and Install
+Run the entire microservices stack with one command:
 
 ```bash
-# Dependencies are already installed
-# If you need to reinstall:
-npm install
-```
+# 1. Copy environment template
+cp .env.example .env
 
-### 2. Setup Supabase
-
-1. Create a new project at [supabase.com](https://supabase.com)
-2. Go to Project Settings > API
-3. Copy your project URL and anon key
-
-### 3. Configure Environment Variables
-
-```bash
-# Copy the example env file
-cp .env.example .env.local
-
-# Edit .env.local and add your Supabase credentials:
-NEXT_PUBLIC_SUPABASE_URL=your-project-url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
-NEXT_PUBLIC_APP_URL=http://localhost:3000
-```
-
-### 4. Run Database Migrations
-
-In your Supabase dashboard, go to **SQL Editor** and run the migration files in order:
-
-1. `supabase/migrations/001_initial_schema.sql`
-2. `supabase/migrations/002_rls_policies.sql`
-3. `supabase/migrations/003_indexes.sql`
-4. `supabase/migrations/004_functions.sql`
-
-### 5. Configure OAuth Providers (Optional)
-
-To enable Google/GitHub login:
-
-1. **Supabase Dashboard** > Authentication > Providers
-2. Enable Google and/or GitHub
-3. Follow the setup instructions for each provider
-4. Add authorized redirect URLs:
-   - Development: `http://localhost:3000/auth/callback`
-   - Production: `https://yourdomain.com/auth/callback`
-
-### 6. Run Development Server
-
-```bash
+# 2. Start all services in development mode
 npm run dev
+
+# Or rebuild if dependencies changed
+npm run dev:build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+**Access the Application:**
+- **Frontend**: http://localhost:3010
+- **Via Kong Gateway**: http://localhost:8010
+- **Kong Admin API**: http://localhost:8011
+- **Mailpit (Email Testing)**: http://localhost:8030
 
-## Project Structure
+**Service Health Endpoints:**
+- Auth: http://localhost:3011/health
+- Todos: http://localhost:3002/health
+- Fundflow: http://localhost:3003/health
+
+### Development Modes
+
+```bash
+# Development (all services, foreground)
+npm run dev
+
+# Development (background)
+npm start
+
+# Production mode
+npm run prod
+
+# Individual services
+npm run service:auth      # Just auth service
+npm run service:frontend  # Just frontend
+```
+
+### Stopping Services
+
+```bash
+# Stop services (preserve data)
+npm stop
+
+# Stop and cleanup
+npm run dev:down
+
+# Complete cleanup (DESTROYS DATA)
+npm run clean
+```
+
+## Architecture
+
+This is a **microservices-based application** with:
+- **3 Backend Services**: Auth, Todos, Fundflow (each with dedicated PostgreSQL database)
+- **1 Frontend**: Next.js application
+- **1 API Gateway**: Kong for HTTP routing
+- **gRPC**: Inter-service communication
+- **npm Workspaces**: Monorepo structure
+
+### Project Structure
 
 ```
-jam-stack-app/
-├── src/
-│   ├── app/                 # Next.js App Router pages
-│   │   ├── (auth)/         # Authentication pages
-│   │   ├── (dashboard)/    # Protected dashboard pages
-│   │   └── api/            # API routes
-│   ├── components/         # React components
-│   │   ├── ui/            # Reusable UI components
-│   │   ├── auth/          # Auth components
-│   │   ├── todos/         # Todo components
-│   │   └── fundflow/      # Fundflow components
-│   ├── lib/
-│   │   ├── supabase/      # Supabase client configs
-│   │   ├── utils/         # Utility functions
-│   │   └── hooks/         # Custom React hooks
-│   └── types/             # TypeScript types
-├── supabase/
-│   └── migrations/        # Database migrations
-├── middleware.ts          # Auth middleware
-└── .env.local            # Environment variables
+jam-stack-microservices/
+├── frontend/              # Next.js application
+│   ├── src/
+│   │   ├── app/          # App Router pages
+│   │   ├── components/   # React components
+│   │   ├── lib/          # API clients, hooks
+│   │   └── types/        # TypeScript types
+│   └── Dockerfile
+├── services/             # Backend microservices
+│   ├── auth-service/     # Authentication + 2FA
+│   ├── todos-service/    # Todo management
+│   └── fundflow-service/ # Financial tracking
+├── packages/             # Shared packages
+│   ├── database-engine/  # Multi-DB abstraction
+│   ├── grpc-protos/      # gRPC definitions
+│   └── base-app/         # Shared utilities
+├── docker/
+│   └── kong/             # Kong gateway config
+├── docker-compose.yml    # Unified deployment config
+├── .env.example          # Configuration template
+└── CLAUDE.md             # Developer documentation
 ```
 
 ## Available Scripts
 
+### Development
 ```bash
-npm run dev          # Start development server
-npm run build        # Build for production
-npm run start        # Start production server
-npm run lint         # Run ESLint
+npm run dev          # Start all services (development)
+npm run dev:build    # Rebuild and start
+npm start            # Start in background (detached)
+npm stop             # Stop all services
 ```
 
-## Database Schema
+### Production
+```bash
+npm run prod         # Start all services (production)
+npm run prod:build   # Rebuild and start (production)
+npm run prod:down    # Stop production services
+```
 
-The application uses the following main tables:
+### Individual Services
+```bash
+npm run service:auth      # Auth service only
+npm run service:todos     # Todos service only
+npm run service:fundflow  # Fundflow service only
+npm run service:frontend  # Frontend only
+npm run service:gateway   # Kong gateway only
+```
 
-- `profiles` - User profiles (extends auth.users)
-- `login_history` - Authentication history
-- `active_sessions` - Active user sessions
-- `todo_lists` - Todo list collections
-- `todos` - Individual todo items
-- `transaction_categories` - Income/expense categories
-- `transactions` - Financial transactions
-- `recurring_transactions` - Recurring bills/income
-- `transaction_reminders` - Payment reminders
+### Logs
+```bash
+npm run logs              # All services
+npm run logs:auth         # Auth service
+npm run logs:frontend     # Frontend
+# ... (todos, fundflow, kong available)
+```
 
-All tables have Row Level Security (RLS) enabled to ensure users can only access their own data.
+### Utilities
+```bash
+npm run proto:generate    # Regenerate gRPC proto files
+npm run build:all         # Build all workspaces
+npm run test:all          # Test all workspaces
+npm run clean             # Remove containers & volumes
+npm run clean:all         # Full system cleanup
+```
+
+## Database Architecture
+
+Each microservice has its own PostgreSQL database (database-per-service pattern):
+
+### Auth Database
+- Users, profiles, authentication
+- Login history, active sessions
+- 2FA secrets and backup codes
+
+### Shared Database (Todos)
+- Todo lists and items
+- Priority levels and due dates
+- User assignments
+
+### Fundflow Database
+- Transaction categories
+- Financial transactions
+- Recurring transactions and reminders
+
+**Benefits**: Service independence, technology flexibility, failure isolation.
 
 ## Security
 
@@ -187,43 +227,85 @@ All tables have Row Level Security (RLS) enabled to ensure users can only access
 - 2FA support with TOTP
 - Secure password requirements
 
+## Environment Configuration
+
+All ports and database passwords are configurable via environment variables. Copy `.env.example` to `.env` and customize:
+
+```bash
+# Key configuration options
+NODE_ENV=production              # or 'development'
+FRONTEND_PORT=3010               # Frontend port
+KONG_PROXY_PORT=8010            # API Gateway port
+AUTH_HTTP_PORT=3011              # Auth service port
+# ... see .env.example for all options
+```
+
 ## Deployment
 
-### Deploy to Vercel
+### Production Deployment
 
-1. Push your code to GitHub
-2. Import your repository on [Vercel](https://vercel.com)
-3. Add environment variables in Vercel dashboard
-4. Deploy
+The unified `docker-compose.yml` supports production deployment:
 
-### Configure Production Supabase
+```bash
+# Set environment
+export NODE_ENV=production
 
-1. Update OAuth redirect URLs to include production domain
-2. Enable database backups in Supabase dashboard
-3. Review and test RLS policies
-4. Set up monitoring and error tracking
+# Start production services
+npm run prod:build
+```
 
-## Development Roadmap
+### Cloud Deployment
 
-See the implementation plan at `.claude/plans/vast-twirling-stream.md` for detailed development phases.
+For cloud deployment (AWS, GCP, Azure):
+1. Build Docker images for each service
+2. Push to container registry
+3. Deploy using Kubernetes, ECS, or similar
+4. Configure environment variables
+5. Set up load balancer pointing to Kong gateway
 
-### Current Status: Phase 1 Complete
+### Database Backups
 
-✅ Project setup and foundation
-- Next.js project initialized
-- Dependencies installed
-- Database migrations created
-- Supabase clients configured
-- Middleware implemented
-- Utility functions created
+Database volumes persist data. For production:
+```bash
+# Backup volumes
+docker run --rm -v jam-auth-db-data:/data -v $(pwd):/backup alpine tar czf /backup/auth-db-backup.tar.gz -C /data .
 
-### Next Steps: Phase 2 - Authentication
+# Restore from backup
+docker run --rm -v jam-auth-db-data:/data -v $(pwd):/backup alpine tar xzf /backup/auth-db-backup.tar.gz -C /data
+```
 
-- Build login/signup pages
-- Implement OAuth integration
-- Create profile management
-- Add 2FA setup
-- Build session management
+## Documentation
+
+- **CLAUDE.md** - Comprehensive developer guide with commands and architecture
+- **MIGRATION.md** - Docker Compose migration guide
+- **.env.example** - Environment variable reference
+- **docs/** - Additional technical documentation
+
+## Current Status
+
+✅ **Infrastructure Complete**
+- Microservices architecture implemented
+- Docker Compose with profiles
+- Kong API gateway configured
+- Database abstraction layer
+- gRPC communication setup
+
+✅ **Authentication Service**
+- User registration and login
+- JWT-based authentication
+- 2FA support (TOTP)
+- Health check endpoints
+
+✅ **Frontend Foundation**
+- Next.js 16 with App Router
+- UI component library (Radix UI)
+- TanStack Query integration
+- Form handling (React Hook Form)
+
+🚧 **In Progress**
+- Todos service implementation
+- Fundflow service implementation
+- Frontend UI development
 
 ## Contributing
 

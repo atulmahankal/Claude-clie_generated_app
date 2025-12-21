@@ -1,258 +1,525 @@
-# Docker Quick Reference
+# Docker Quick Reference - JAM Stack Microservices
 
-This guide provides quick commands for managing your local Supabase development environment.
-
-## Prerequisites
-
-- Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-- Ensure Docker is running before executing any commands
+Quick commands and tips for managing the Docker microservices stack.
 
 ## Quick Start
 
 ```bash
-# 1. Copy environment template
-cp .env.local.example .env.local
+# Start all services
+npm run dev
 
-# 2. Start all services
-docker-compose -f docker-compose.local.yml up
+# Start with rebuild
+npm run dev:build
 
-# 3. Access the services
-# - Next.js: http://localhost:3000
-# - Supabase Studio: http://localhost:3001
-# - Supabase API: http://localhost:8000
+# Start in background
+npm start
+
+# Stop services
+npm stop
 ```
 
-## Common Commands
+## Architecture
+
+The unified `docker-compose.yml` orchestrates:
+
+| Component | Container Name | Ports | Profile |
+|-----------|---------------|-------|---------|
+| Auth Service | jam-auth-service | 3011, 50051 | dev, prod, auth |
+| Todos Service | jam-todos-service | 3002, 50052 | dev, prod, todos |
+| Fundflow Service | jam-fundflow-service | 3003, 50053 | dev, prod, fundflow |
+| Frontend | jam-frontend | 3010 | dev, prod, frontend |
+| Kong Gateway | jam-kong | 8010, 8011 | dev, prod, gateway |
+| Auth DB | jam-auth-db | 5433 | dev, prod, auth |
+| Shared DB | jam-shared-db | 5435 | dev, prod, todos |
+| Fundflow DB | jam-fundflow-db | 5434 | dev, prod, fundflow |
+| Mailpit | jam-mailpit | 8030, 1030 | dev, mail |
+
+## Service Management
 
 ### Starting Services
 
 ```bash
-# Start all services (foreground - shows logs)
-docker-compose -f docker-compose.local.yml up
+# All services (development)
+docker compose --profile dev up
 
-# Start all services (background)
-docker-compose -f docker-compose.local.yml up -d
+# All services (production)
+docker compose --profile prod up -d
 
-# Start specific service
-docker-compose -f docker-compose.local.yml up app
-docker-compose -f docker-compose.local.yml up db
+# Specific services
+docker compose --profile auth up        # Auth + database
+docker compose --profile frontend up     # Frontend only
+
+# Custom combinations
+docker compose --profile auth --profile todos up
 ```
 
 ### Stopping Services
 
 ```bash
-# Stop all services (keeps data)
-docker-compose -f docker-compose.local.yml down
-
-# Stop all services and remove volumes (deletes all data)
-docker-compose -f docker-compose.local.yml down -v
+# Stop all services (preserve volumes/data)
+docker compose down
 
 # Stop specific service
-docker-compose -f docker-compose.local.yml stop app
-```
+docker compose stop auth-service
 
-### Viewing Logs
-
-```bash
-# View all logs (follow mode)
-docker-compose -f docker-compose.local.yml logs -f
-
-# View logs for specific service
-docker-compose -f docker-compose.local.yml logs -f app
-docker-compose -f docker-compose.local.yml logs -f db
-docker-compose -f docker-compose.local.yml logs -f studio
-
-# View last 100 lines
-docker-compose -f docker-compose.local.yml logs --tail=100
+# Stop and remove volumes (DELETES DATA)
+docker compose down -v
 ```
 
 ### Restarting Services
 
 ```bash
 # Restart all services
-docker-compose -f docker-compose.local.yml restart
+docker compose restart
 
 # Restart specific service
-docker-compose -f docker-compose.local.yml restart app
-docker-compose -f docker-compose.local.yml restart db
+docker compose restart auth-service
+docker compose restart frontend
+docker compose restart kong
 ```
 
-### Service Status
+## Logs and Monitoring
+
+### Viewing Logs
 
 ```bash
-# View running containers
-docker-compose -f docker-compose.local.yml ps
+# All services
+docker compose logs -f
 
-# View all containers (including stopped)
-docker-compose -f docker-compose.local.yml ps -a
+# Specific service
+docker compose logs -f auth-service
+docker compose logs -f frontend
+docker compose logs -f kong
 
-# Check Docker status
-docker ps
+# Last 100 lines
+docker compose logs --tail=100 auth-service
+
+# Multiple services
+docker compose logs -f auth-service todos-service
 ```
 
-## Database Management
-
-### Access PostgreSQL
+### Container Status
 
 ```bash
-# Connect to PostgreSQL container
-docker exec -it supabase-db psql -U postgres -d postgres
+# List running containers
+docker compose ps
 
-# Run SQL file
-docker exec -i supabase-db psql -U postgres -d postgres < supabase/migrations/001_initial_schema.sql
+# List all containers
+docker compose ps -a
+
+# View resource usage
+docker stats
+
+# Detailed container info
+docker inspect jam-auth-service
 ```
 
-### Database Operations
+## Database Operations
+
+### Accessing Databases
 
 ```bash
-# Backup database
-docker exec supabase-db pg_dump -U postgres postgres > backup.sql
+# Auth database
+docker exec -it jam-auth-db psql -U postgres -d auth
+
+# Todos database
+docker exec -it jam-shared-db psql -U postgres -d shared
+
+# Fundflow database
+docker exec -it jam-fundflow-db psql -U postgres -d fundflow
+```
+
+### Common PostgreSQL Commands
+
+```sql
+-- List all tables
+\dt
+
+-- Describe table
+\d table_name
+
+-- Show all databases
+\l
+
+-- Quit
+\q
+```
+
+### Database Backups
+
+```bash
+# Backup auth database
+docker exec jam-auth-db pg_dump -U postgres auth > auth-backup.sql
+
+# Backup todos database
+docker exec jam-shared-db pg_dump -U postgres shared > todos-backup.sql
+
+# Backup fundflow database
+docker exec jam-fundflow-db pg_dump -U postgres fundflow > fundflow-backup.sql
 
 # Restore database
-docker exec -i supabase-db psql -U postgres -d postgres < backup.sql
-
-# Check database health
-docker exec -it supabase-db pg_isready -U postgres
+docker exec -i jam-auth-db psql -U postgres -d auth < auth-backup.sql
 ```
 
-### Run Migrations
+### Volume Backups
 
 ```bash
-# Run all migrations in order
-docker exec -i supabase-db psql -U postgres -d postgres < supabase/migrations/001_initial_schema.sql
-docker exec -i supabase-db psql -U postgres -d postgres < supabase/migrations/002_rls_policies.sql
-docker exec -i supabase-db psql -U postgres -d postgres < supabase/migrations/003_indexes.sql
-docker exec -i supabase-db psql -U postgres -d postgres < supabase/migrations/004_functions.sql
+# Backup volume to tar.gz
+docker run --rm \
+  -v jam-stack-microservices_auth-db-data:/data \
+  -v $(pwd):/backup \
+  alpine tar czf /backup/auth-db.tar.gz -C /data .
+
+# Restore volume from tar.gz
+docker run --rm \
+  -v jam-stack-microservices_auth-db-data:/data \
+  -v $(pwd):/backup \
+  alpine tar xzf /backup/auth-db.tar.gz -C /data
+```
+
+## Building and Rebuilding
+
+### Build Commands
+
+```bash
+# Rebuild all services
+docker compose build
+
+# Rebuild specific service
+docker compose build auth-service
+
+# Rebuild without cache
+docker compose build --no-cache
+
+# Build and start
+docker compose up --build
+```
+
+### Image Management
+
+```bash
+# List images
+docker images
+
+# Remove specific image
+docker rmi docker-auth-service
+
+# Remove all unused images
+docker image prune
+
+# Remove all images (nuclear option)
+docker image prune -a
 ```
 
 ## Troubleshooting
 
-### Reset Everything
+### Health Checks
 
 ```bash
-# Nuclear option - complete reset
-docker-compose -f docker-compose.local.yml down -v
-docker system prune -a --volumes
+# Check service health
+curl http://localhost:3011/health  # Auth
+curl http://localhost:3002/health  # Todos
+curl http://localhost:3003/health  # Fundflow
 
-# Then restart
-docker-compose -f docker-compose.local.yml up
+# Check Kong
+curl http://localhost:8011/status
+
+# Check database health
+docker exec jam-auth-db pg_isready -U postgres
 ```
 
 ### Port Conflicts
 
 ```bash
 # Check what's using a port
-lsof -i :3000  # Next.js
-lsof -i :3001  # Supabase Studio
-lsof -i :8000  # Supabase API
-lsof -i :5432  # PostgreSQL
+sudo lsof -i :3010  # Frontend
+sudo lsof -i :8010  # Kong
+sudo lsof -i :5433  # Auth DB
 
 # Kill process on port
-kill -9 $(lsof -t -i:3000)
+sudo kill -9 $(sudo lsof -t -i:3010)
 ```
 
-### Rebuild Containers
+### Service Debugging
 
 ```bash
-# Rebuild all containers
-docker-compose -f docker-compose.local.yml build
+# Enter running container
+docker exec -it jam-auth-service sh
+docker exec -it jam-frontend sh
 
-# Rebuild specific container
-docker-compose -f docker-compose.local.yml build app
+# View environment variables
+docker exec jam-auth-service env
 
-# Rebuild and start (no cache)
-docker-compose -f docker-compose.local.yml build --no-cache
-docker-compose -f docker-compose.local.yml up --force-recreate
+# Check specific env variable
+docker exec jam-auth-service printenv DB_HOST
+
+# View container filesystem
+docker exec jam-auth-service ls -la /app
 ```
 
-### View Container Details
+### Reset Everything
 
 ```bash
-# Inspect container
-docker inspect supabase-db
-docker inspect jam-stack-app-dev
+# Stop and remove everything
+docker compose down -v
 
-# View container stats (CPU, memory usage)
-docker stats
+# Clean all Docker resources
+docker system prune -af --volumes
 
-# Execute command in running container
-docker exec -it supabase-db sh
-docker exec -it jam-stack-app-dev sh
-```
-
-### Clean Up
-
-```bash
-# Remove stopped containers
-docker container prune
-
-# Remove unused images
-docker image prune
-
-# Remove unused volumes
-docker volume prune
-
-# Remove everything (BE CAREFUL!)
-docker system prune -a --volumes
+# Start fresh
+npm run dev:build
 ```
 
 ## Environment Variables
 
-### View Environment Variables
+### Viewing Configuration
 
 ```bash
-# View all environment variables in container
-docker exec jam-stack-app-dev env
+# View current docker-compose config
+docker compose config
 
-# View specific environment variable
-docker exec jam-stack-app-dev printenv NEXT_PUBLIC_SUPABASE_URL
+# View services in a profile
+docker compose --profile dev config --services
+
+# Check profiles
+docker compose config --profiles
 ```
 
-### Update Environment Variables
+### Updating Environment
 
-1. Edit `.env.local` file
-2. Restart the services:
+1. Edit `.env` file
+2. Restart services:
    ```bash
-   docker-compose -f docker-compose.local.yml restart
+   docker compose restart
    ```
 
-## Service URLs
+Or rebuild if needed:
+```bash
+docker compose up --build
+```
 
-| Service | URL | Description |
-|---------|-----|-------------|
-| Next.js App | http://localhost:3000 | Main application |
-| Supabase Studio | http://localhost:3001 | Database management UI |
-| Supabase API | http://localhost:8000 | API Gateway |
-| PostgreSQL | localhost:5432 | Database (use client to connect) |
-| Mailpit | http://localhost:8025 | Email testing UI |
+## Network Management
+
+### Network Commands
+
+```bash
+# List networks
+docker network ls
+
+# Inspect network
+docker network inspect jam-stack-application_jam-network
+
+# Remove unused networks
+docker network prune
+```
+
+### Network Debugging
+
+```bash
+# Test connectivity between containers
+docker exec jam-frontend ping jam-auth-service
+docker exec jam-kong ping jam-frontend
+
+# Check DNS resolution
+docker exec jam-frontend nslookup jam-auth-service
+```
+
+## Volume Management
+
+### Volume Commands
+
+```bash
+# List volumes
+docker volume ls
+
+# Inspect volume
+docker volume inspect jam-stack-microservices_auth-db-data
+
+# Remove specific volume
+docker volume rm jam-stack-microservices_auth-db-data
+
+# Remove all unused volumes
+docker volume prune
+```
+
+### Data Persistence
+
+Database data is stored in named volumes:
+- `jam-stack-microservices_auth-db-data`
+- `jam-stack-microservices_shared-db-data`
+- `jam-stack-microservices_fundflow-db-data`
+
+These persist between container restarts unless explicitly removed.
+
+## Performance Optimization
+
+### Resource Limits
+
+Add to `docker-compose.yml` for production:
+
+```yaml
+deploy:
+  resources:
+    limits:
+      cpus: '1.0'
+      memory: 512M
+    reservations:
+      cpus: '0.5'
+      memory: 256M
+```
+
+### Monitoring Resources
+
+```bash
+# Real-time stats
+docker stats
+
+# Disk usage
+docker system df
+
+# Detailed usage
+docker system df -v
+```
 
 ## Production Deployment
 
-For production deployment, use:
+### Build for Production
 
 ```bash
-# Build and start production stack
-docker-compose -f docker-compose.prod.yml up -d
+# Set NODE_ENV
+export NODE_ENV=production
 
-# Or deploy to cloud platforms:
-# - Vercel (Next.js)
-# - Supabase Cloud (Database & Auth)
+# Build and deploy
+docker compose --profile prod up --build -d
 ```
 
-See [SETUP.md](./SETUP.md) for detailed production deployment instructions.
+### Production Checklist
+
+- [ ] Set `NODE_ENV=production` in `.env`
+- [ ] Change all default database passwords
+- [ ] Enable SSL/TLS for Kong
+- [ ] Configure proper logging
+- [ ] Set up monitoring
+- [ ] Enable automated backups
+- [ ] Use secrets management (not .env files)
+- [ ] Configure resource limits
+- [ ] Set up health monitoring
+
+## Useful Aliases
+
+Add to your `~/.bashrc` or `~/.zshrc`:
+
+```bash
+# Docker Compose shortcuts
+alias dcup='docker compose up'
+alias dcdown='docker compose down'
+alias dclogs='docker compose logs -f'
+alias dcps='docker compose ps'
+alias dcrestart='docker compose restart'
+
+# JAM stack specific
+alias jamdev='docker compose --profile dev up'
+alias jamlogs='docker compose logs -f'
+alias jamdown='docker compose down'
+alias jamclean='docker compose down -v && docker system prune -f'
+```
+
+## Common Workflows
+
+### Morning Startup
+
+```bash
+# Start all services
+npm run dev
+
+# Check health
+curl http://localhost:3011/health
+curl http://localhost:3002/health
+curl http://localhost:3003/health
+
+# View logs
+npm run logs
+```
+
+### After Code Changes
+
+```bash
+# Backend service changes
+npm run dev:build
+
+# Frontend changes (for hot reload)
+cd frontend && npm run dev
+
+# Proto file changes
+npm run proto:generate && npm run dev:build
+```
+
+### End of Day
+
+```bash
+# Stop services (preserve data)
+npm stop
+
+# Or completely shut down
+npm run dev:down
+```
+
+## Emergency Commands
+
+### Service is Unresponsive
+
+```bash
+# Force restart
+docker compose kill auth-service
+docker compose up -d auth-service
+
+# Or rebuild
+docker compose up --build -d auth-service
+```
+
+### Database Corruption
+
+```bash
+# Stop services
+docker compose down
+
+# Remove database volume
+docker volume rm jam-stack-microservices_auth-db-data
+
+# Restart (will recreate database)
+docker compose up -d
+```
+
+### Complete Reset
+
+```bash
+# Nuclear option - destroys everything
+docker compose down -v
+docker system prune -af --volumes
+rm -rf node_modules
+npm install
+npm run dev:build
+```
 
 ## Additional Resources
 
-- [Docker Documentation](https://docs.docker.com/)
 - [Docker Compose Documentation](https://docs.docker.com/compose/)
-- [Supabase Self-Hosting Guide](https://supabase.com/docs/guides/self-hosting/docker)
-- [Next.js Docker Documentation](https://nextjs.org/docs/deployment#docker-image)
+- [Docker CLI Reference](https://docs.docker.com/engine/reference/commandline/cli/)
+- [CLAUDE.md](./CLAUDE.md) - Full architecture guide
+- [SETUP.md](./SETUP.md) - Detailed setup instructions
+- [MIGRATION.md](./MIGRATION.md) - Migration from old setup
 
 ## Tips
 
-1. **First Run**: Initial startup takes 2-5 minutes to download images
-2. **Data Persistence**: Database data is stored in Docker volumes
-3. **Hot Reload**: Source code changes automatically reload the Next.js app
-4. **Studio Access**: Use Supabase Studio at http://localhost:3001 to manage your database visually
-5. **Logs**: Always check logs first when debugging: `docker-compose -f docker-compose.local.yml logs -f`
-6. **Email Testing**: Use Mailpit at http://localhost:8025 to view all emails sent by the application (signup confirmations, password resets, etc.)
+1. **Use profiles**: `--profile` flag allows running specific service combinations
+2. **Check logs first**: Most issues are visible in `docker compose logs`
+3. **Health endpoints**: All services expose `/health` for quick status checks
+4. **Volume persistence**: Data survives container restarts (unless you use `-v`)
+5. **Environment changes**: Some changes require rebuild, others just restart
+6. **Port conflicts**: Use `.env` to customize ports if defaults are taken
+7. **Resource usage**: Monitor with `docker stats` to prevent resource exhaustion
+
+---
+
+**Quick Help**: `docker compose --help` or `docker --help`
+**Project Docs**: See `CLAUDE.md` for complete architecture and commands

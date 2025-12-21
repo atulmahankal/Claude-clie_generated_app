@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture Overview
 
-This is a **microservices-based JAM stack application** with a Next.js frontend communicating with backend services via gRPC. Kong serves as the API gateway for HTTP/REST routing.
+This is a **microservices-based JAM stack application** with a Next.js frontend communicating with backend services via gRPC using the BFF (Backend for Frontend) pattern through Next.js API Routes.
 
 ### Key Components
 
@@ -17,32 +17,32 @@ This is a **microservices-based JAM stack application** with a Next.js frontend 
    - `database-engine`: Multi-database abstraction layer (PostgreSQL, MySQL, MongoDB, SQLite)
    - `grpc-protos`: gRPC protocol buffer definitions
    - `base-app`: Shared utilities and base application setup
-4. **API Gateway**: Kong (port 8010) routes HTTP requests to services
-5. **Databases**: Each service has its own PostgreSQL database (database-per-service pattern)
+4. **Databases**: Each service has its own PostgreSQL database (database-per-service pattern)
 
 ### Communication Patterns
 
-- **Frontend ↔ Backend**: gRPC (development) via environment variables:
-  - `AUTH_SERVICE_URL=auth-service:50051`
-  - `TODOS_SERVICE_URL=todos-service:50052`
-  - `FUNDFLOW_SERVICE_URL=fundflow-service:50053`
-- **External HTTP ↔ Services**: Kong gateway routes `/api/auth`, `/api/todos`, `/api/fundflow` to respective services
-- **Frontend HTTP**: Kong routes `/` to the Next.js frontend on port 3000
+- **Browser ↔ Frontend**: HTTP/HTTPS to Next.js (port 3010)
+- **Frontend ↔ Backend**: gRPC via Next.js API Routes (BFF pattern):
+  - Next.js API Routes (`/app/api/*`) make gRPC calls to backend services
+  - Frontend components call Next.js API Routes via fetch/axios
+  - gRPC clients connect to: `auth-service:50051`, `todos-service:50052`, `fundflow-service:50053`
+- **Service Discovery**: Docker DNS resolution within jam-network
 
 ### Port Mapping
 
-| Service | Internal Port | External Port | gRPC Port | External gRPC |
-|---------|---------------|---------------|-----------|---------------|
-| Frontend | 3000 | 3010 | - | - |
-| Auth Service | 3001 | 3011 | 50051 | 50051 |
-| Todos Service | 3002 | 3002 | 50052 | 50052 |
-| Fundflow Service | 3003 | 3003 | 50053 | 50053 |
-| Kong Gateway | 8000/8001 | 8010/8011 | - | - |
-| Mailpit UI | 8025 | 8030 | - | - |
-| Mailpit SMTP | 1025 | 1030 | - | - |
-| Auth DB | 5432 | 5433 | - | - |
-| Todos DB | 5432 | 5435 | - | - |
-| Fundflow DB | 5432 | 5434 | - | - |
+| Service | Internal Port | External Port | gRPC Port | External gRPC | Purpose |
+|---------|---------------|---------------|-----------|---------------|---------|
+| Frontend | 3000 | 3010 | - | - | Main application access |
+| Auth Service | 3001 | 3011* | 50051 | 50051 | gRPC communication |
+| Todos Service | 3002 | 3002* | 50052 | 50052 | gRPC communication |
+| Fundflow Service | 3003 | 3003* | 50053 | 50053 | gRPC communication |
+| Mailpit UI | 8025 | 8030 | - | - | Email testing |
+| Mailpit SMTP | 1025 | 1030 | - | - | Email sending |
+| Auth DB | 5432 | 5433 | - | - | Database access |
+| Todos DB | 5432 | 5435 | - | - | Database access |
+| Fundflow DB | 5432 | 5434 | - | - | Database access |
+
+**Note**: HTTP ports (3001-3003) are exposed only for debugging and health checks. All frontend-to-backend communication uses gRPC (ports 50051-50053) through Next.js API Routes.
 
 ## Development Commands
 
@@ -86,7 +86,6 @@ npm run service:auth      # Auth service + database
 npm run service:todos     # Todos service + database
 npm run service:fundflow  # Fundflow service + database
 npm run service:frontend  # Frontend only (requires services running)
-npm run service:gateway   # Kong gateway only
 
 # Multiple services using Docker Compose directly
 docker compose --profile auth --profile todos up
@@ -103,7 +102,6 @@ npm run logs:auth
 npm run logs:todos
 npm run logs:fundflow
 npm run logs:frontend
-npm run logs:kong
 
 # Docker Compose logs for any service
 docker compose logs -f [service-name]
@@ -284,7 +282,6 @@ The unified `docker-compose.yml` uses profiles for flexible deployment:
 - **`todos`**: Todos service + shared-db
 - **`fundflow`**: Fundflow service + fundflow-db
 - **`frontend`**: Frontend application only
-- **`gateway`**: Kong API gateway only
 - **`mail`**: Mailpit email testing tool
 
 Combine profiles for custom setups:
@@ -296,13 +293,12 @@ docker compose --profile auth --profile frontend up
 
 ### Accessing Services
 
-- **Frontend**: http://localhost:3010 (via Kong: http://localhost:8010/)
-- **Kong Admin API**: http://localhost:8011
+- **Frontend (Main App)**: http://localhost:3010
 - **Mailpit UI**: http://localhost:8030 (email testing)
-- **Individual Services**:
-  - Auth: http://localhost:3011
-  - Todos: http://localhost:3002
-  - Fundflow: http://localhost:3003
+- **Individual Services** (debugging/health checks only):
+  - Auth: http://localhost:3011/health
+  - Todos: http://localhost:3002/health
+  - Fundflow: http://localhost:3003/health
 
 ### Health Checks
 
@@ -313,30 +309,24 @@ docker ps
 # View logs (streaming)
 docker logs -f jam-frontend
 docker logs -f jam-auth-service
-docker logs -f jam-kong
 
 # Check service health endpoints
 curl http://localhost:3011/health  # Auth service
 curl http://localhost:3002/health  # Todos service
 curl http://localhost:3003/health  # Fundflow service
 
-# Check Kong routes
-curl http://localhost:8011/services
-curl http://localhost:8011/routes
-
-# Test complete request flow through Kong
-curl http://localhost:8010/           # Should return Next.js frontend
-curl http://localhost:8010/api/auth   # Routes to auth-service
+# Test frontend
+curl http://localhost:3010/           # Should return Next.js frontend
 ```
 
 ### Common Issues
 
-1. **Kong route resolution fails**: Verify service names in `docker/kong/kong.yml` match container names in docker-compose
-2. **gRPC connection errors**: Ensure `*_SERVICE_URL` environment variables use internal Docker network hostnames, not localhost
-3. **Database connection fails**: Check if databases are healthy: `docker ps` should show "healthy" status
-4. **Port conflicts**: Default ports are 3010 (frontend via Kong), 8010 (Kong proxy), 3011/3002/3003 (services)
-5. **Build cache issues**: If services don't reflect code changes, rebuild with `npm run dev:build` (includes `--build` flag)
-6. **Service startup order**: Services wait for databases to be healthy before starting (see `depends_on` in docker-compose)
+1. **gRPC connection errors**: Ensure `*_SERVICE_URL` environment variables use internal Docker network hostnames (e.g., `auth-service:50051`), not localhost
+2. **Database connection fails**: Check if databases are healthy: `docker ps` should show "healthy" status
+3. **Port conflicts**: Default ports are 3010 (frontend), 3011/3002/3003 (services HTTP), 50051/50052/50053 (services gRPC)
+4. **Build cache issues**: If services don't reflect code changes, rebuild with `npm run dev:build` (includes `--build` flag)
+5. **Service startup order**: Services wait for databases to be healthy before starting (see `depends_on` in docker-compose)
+6. **API Route not connecting to gRPC**: Verify gRPC client configuration in Next.js API Routes uses correct service URLs
 
 ## Important Technical Decisions
 
@@ -357,12 +347,15 @@ Currently services expose both:
 - **gRPC** (ports 50051-50053): For inter-service communication
 - **HTTP/REST** (ports 3001-3003): For direct access and Kong routing
 
-### Kong as API Gateway
+### Next.js as BFF (Backend for Frontend)
 
-Kong provides:
-- **Unified Entry Point**: Single port (8010) for all frontend HTTP requests
-- **CORS Handling**: Centralized CORS configuration
-- **Future Extensions**: Rate limiting, authentication, logging can be added as plugins
+Next.js API Routes serve as the BFF layer:
+- **Type Safety**: End-to-end TypeScript from browser to services
+- **SSR/SSG Support**: Server-side rendering with direct gRPC access
+- **CORS Handling**: Built-in CORS support via Next.js config
+- **Authentication**: Middleware can validate requests before reaching services
+- **Request Transformation**: Map REST API to gRPC calls seamlessly
+- **Error Handling**: Centralized error handling and formatting
 
 ## Technology Versions
 
@@ -371,8 +364,7 @@ Kong provides:
 - **Next.js**: 16.1.0
 - **React**: 19.2.3
 - **TypeScript**: 5.x
-- **PostgreSQL**: 15
-- **Kong**: 3.4
+- **PostgreSQL**: 15-alpine
 - **Docker**: Alpine-based images (node:20-alpine)
 
 ## Development Workflow Tips
@@ -383,7 +375,7 @@ Kong provides:
 2. **Frontend**: Next.js production build is cached; rebuild container for changes
 3. **Shared packages** (`packages/*`): Changes require rebuilding dependent services
 4. **gRPC protos**: Run `npm run proto:generate` then rebuild affected services
-5. **Kong config** (`docker/kong/kong.yml`): Restart Kong container: `docker restart jam-kong`
+5. **Next.js API Routes**: Changes to API routes require frontend rebuild
 
 ### Inspecting Running Services
 

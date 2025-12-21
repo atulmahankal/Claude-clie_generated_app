@@ -50,10 +50,10 @@ A full-stack web application built with Next.js 14, Supabase, and Tailwind CSS f
 - **Authentication**: JWT + 2FA (TOTP)
 
 ### Infrastructure
-- **API Gateway**: Kong 3.4
 - **Containerization**: Docker + Docker Compose
 - **Email Testing**: Mailpit (development)
 - **Database Abstraction**: Custom multi-DB engine
+- **BFF Pattern**: Next.js API Routes for backend communication
 
 ## Getting Started
 
@@ -63,80 +63,104 @@ A full-stack web application built with Next.js 14, Supabase, and Tailwind CSS f
 - **Node.js** >= 20.0.0 and npm >= 10.0.0
 - **Git** for version control
 
-### Quick Start (Docker - Recommended)
+### Quick Start (Docker)
 
-Run the entire microservices stack with one command:
+**Ensure Docker Desktop is installed and running** before proceeding.
 
 ```bash
 # 1. Copy environment template
 cp .env.example .env
 
-# 2. Start all services in development mode
-npm run dev
+# 2. Build and start all containers
+# Development mode (with Mailpit email testing):
+docker compose --profile dev up --build
 
-# Or rebuild if dependencies changed
-npm run dev:build
+# Production mode (without Mailpit):
+docker compose --profile prod up --build -d
+
+# 3. Subsequent runs (after first build)
+docker compose --profile dev up          # Development
+docker compose --profile prod up -d      # Production
+
+# 4. View logs
+docker compose logs -f                   # All services
+docker compose logs -f auth-service      # Specific service
+
+# 5. Stop services
+docker compose down                      # Stop all
+docker compose down -v                   # Stop and remove volumes (DESTROYS DATA)
 ```
 
 **Access the Application:**
 - **Frontend**: http://localhost:3010
-- **Via Kong Gateway**: http://localhost:8010
-- **Kong Admin API**: http://localhost:8011
-- **Mailpit (Email Testing)**: http://localhost:8030
+- **Mailpit (Email Testing)**: http://localhost:8030 (dev mode only)
 
 **Service Health Endpoints:**
 - Auth: http://localhost:3011/health
 - Todos: http://localhost:3002/health
 - Fundflow: http://localhost:3003/health
 
-### Development Modes
+### Local Installation (Without Docker)
+
+For local development without Docker:
 
 ```bash
-# Development (all services, foreground)
-npm run dev
+# 1. Install dependencies for all workspaces
+npm install
 
-# Development (background)
-npm start
+# 2. Set up local PostgreSQL databases
+# Create three databases: auth, shared, fundflow
+createdb auth
+createdb shared
+createdb fundflow
 
-# Production mode
-npm run prod
+# 3. Configure environment
+cp .env.example .env
+# Edit .env to point to your local databases:
+# DB_HOST=localhost
+# AUTH_DB_PORT=5432
+# SHARED_DB_PORT=5432
+# FUNDFLOW_DB_PORT=5432
 
-# Individual services
-npm run service:auth      # Just auth service
-npm run service:frontend  # Just frontend
+# 4. Run database migrations
+cd services/auth-service && npm run migrate
+cd ../todos-service && npm run migrate
+cd ../fundflow-service && npm run migrate
+
+# 5. Start services individually
+# Terminal 1 - Auth Service:
+cd services/auth-service && npm run dev
+
+# Terminal 2 - Todos Service:
+cd services/todos-service && npm run dev
+
+# Terminal 3 - Fundflow Service:
+cd services/fundflow-service && npm run dev
+
+# Terminal 4 - Frontend:
+cd frontend && npm run dev
 ```
 
-### Stopping Services
-
-```bash
-# Stop services (preserve data)
-npm stop
-
-# Stop and cleanup
-npm run dev:down
-
-# Complete cleanup (DESTROYS DATA)
-npm run clean
-```
+**Note**: Docker is the recommended approach as it handles all database setup, networking, and service orchestration automatically.
 
 ## Architecture
 
 This is a **microservices-based application** with:
 - **3 Backend Services**: Auth, Todos, Fundflow (each with dedicated PostgreSQL database)
-- **1 Frontend**: Next.js application
-- **1 API Gateway**: Kong for HTTP routing
-- **gRPC**: Inter-service communication
+- **1 Frontend**: Next.js application (serves as BFF - Backend for Frontend)
+- **gRPC**: Frontend to backend communication via Next.js API Routes
 - **npm Workspaces**: Monorepo structure
 
 ### Project Structure
 
 ```
 jam-stack-microservices/
-├── frontend/              # Next.js application
+├── frontend/              # Next.js application (BFF Pattern)
 │   ├── src/
 │   │   ├── app/          # App Router pages
+│   │   │   └── api/      # API Routes (BFF layer)
 │   │   ├── components/   # React components
-│   │   ├── lib/          # API clients, hooks
+│   │   ├── lib/          # gRPC clients, hooks
 │   │   └── types/        # TypeScript types
 │   └── Dockerfile
 ├── services/             # Backend microservices
@@ -147,8 +171,6 @@ jam-stack-microservices/
 │   ├── database-engine/  # Multi-DB abstraction
 │   ├── grpc-protos/      # gRPC definitions
 │   └── base-app/         # Shared utilities
-├── docker/
-│   └── kong/             # Kong gateway config
 ├── docker-compose.yml    # Unified deployment config
 ├── .env.example          # Configuration template
 └── CLAUDE.md             # Developer documentation
@@ -235,10 +257,12 @@ All ports and database passwords are configurable via environment variables. Cop
 # Key configuration options
 NODE_ENV=production              # or 'development'
 FRONTEND_PORT=3010               # Frontend port
-KONG_PROXY_PORT=8010            # API Gateway port
-AUTH_HTTP_PORT=3011              # Auth service port
+AUTH_HTTP_PORT=3011              # Auth service HTTP port (for debugging)
+AUTH_GRPC_PORT=50051             # Auth service gRPC port
 # ... see .env.example for all options
 ```
+
+**Note**: Frontend communicates with backend services via gRPC through Next.js API Routes (BFF pattern). HTTP ports are exposed only for debugging and health checks.
 
 ## Deployment
 
@@ -261,7 +285,8 @@ For cloud deployment (AWS, GCP, Azure):
 2. Push to container registry
 3. Deploy using Kubernetes, ECS, or similar
 4. Configure environment variables
-5. Set up load balancer pointing to Kong gateway
+5. Set up load balancer pointing to frontend
+6. Ensure frontend can reach backend services via gRPC (internal network)
 
 ### Database Backups
 

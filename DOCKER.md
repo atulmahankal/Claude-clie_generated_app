@@ -22,17 +22,18 @@ npm stop
 
 The unified `docker-compose.yml` orchestrates:
 
-| Component | Container Name | Ports | Profile |
-|-----------|---------------|-------|---------|
-| Auth Service | jam-auth-service | 3011, 50051 | dev, prod, auth |
-| Todos Service | jam-todos-service | 3002, 50052 | dev, prod, todos |
-| Fundflow Service | jam-fundflow-service | 3003, 50053 | dev, prod, fundflow |
-| Frontend | jam-frontend | 3010 | dev, prod, frontend |
-| Kong Gateway | jam-kong | 8010, 8011 | dev, prod, gateway |
-| Auth DB | jam-auth-db | 5433 | dev, prod, auth |
-| Shared DB | jam-shared-db | 5435 | dev, prod, todos |
-| Fundflow DB | jam-fundflow-db | 5434 | dev, prod, fundflow |
-| Mailpit | jam-mailpit | 8030, 1030 | dev, mail |
+| Component | Container Name | Ports | Profile | Purpose |
+|-----------|---------------|-------|---------|---------|
+| Auth Service | jam-auth-service | 3011 (HTTP), 50051 (gRPC) | dev, prod, auth | Authentication + 2FA |
+| Todos Service | jam-todos-service | 3002 (HTTP), 50052 (gRPC) | dev, prod, todos | Todo management |
+| Fundflow Service | jam-fundflow-service | 3003 (HTTP), 50053 (gRPC) | dev, prod, fundflow | Financial tracking |
+| Frontend | jam-frontend | 3010 | dev, prod, frontend | Next.js with BFF |
+| Auth DB | jam-auth-db | 5433 | dev, prod, auth | PostgreSQL |
+| Shared DB | jam-shared-db | 5435 | dev, prod, todos | PostgreSQL |
+| Fundflow DB | jam-fundflow-db | 5434 | dev, prod, fundflow | PostgreSQL |
+| Mailpit | jam-mailpit | 8030 (UI), 1030 (SMTP) | dev, mail | Email testing |
+
+**Note**: HTTP ports (3011, 3002, 3003) are for debugging/health checks only. Communication is via gRPC through Next.js API Routes.
 
 ## Service Management
 
@@ -75,7 +76,6 @@ docker compose restart
 # Restart specific service
 docker compose restart auth-service
 docker compose restart frontend
-docker compose restart kong
 ```
 
 ## Logs and Monitoring
@@ -89,7 +89,6 @@ docker compose logs -f
 # Specific service
 docker compose logs -f auth-service
 docker compose logs -f frontend
-docker compose logs -f kong
 
 # Last 100 lines
 docker compose logs --tail=100 auth-service
@@ -221,8 +220,8 @@ curl http://localhost:3011/health  # Auth
 curl http://localhost:3002/health  # Todos
 curl http://localhost:3003/health  # Fundflow
 
-# Check Kong
-curl http://localhost:8011/status
+# Check frontend
+curl http://localhost:3010/
 
 # Check database health
 docker exec jam-auth-db pg_isready -U postgres
@@ -233,7 +232,7 @@ docker exec jam-auth-db pg_isready -U postgres
 ```bash
 # Check what's using a port
 sudo lsof -i :3010  # Frontend
-sudo lsof -i :8010  # Kong
+sudo lsof -i :50051 # Auth gRPC
 sudo lsof -i :5433  # Auth DB
 
 # Kill process on port
@@ -318,10 +317,10 @@ docker network prune
 ```bash
 # Test connectivity between containers
 docker exec jam-frontend ping jam-auth-service
-docker exec jam-kong ping jam-frontend
-
-# Check DNS resolution
 docker exec jam-frontend nslookup jam-auth-service
+
+# Check gRPC connectivity (from frontend)
+docker exec jam-frontend telnet jam-auth-service 50051
 ```
 
 ## Volume Management
@@ -351,36 +350,6 @@ Database data is stored in named volumes:
 
 These persist between container restarts unless explicitly removed.
 
-## Performance Optimization
-
-### Resource Limits
-
-Add to `docker-compose.yml` for production:
-
-```yaml
-deploy:
-  resources:
-    limits:
-      cpus: '1.0'
-      memory: 512M
-    reservations:
-      cpus: '0.5'
-      memory: 256M
-```
-
-### Monitoring Resources
-
-```bash
-# Real-time stats
-docker stats
-
-# Disk usage
-docker system df
-
-# Detailed usage
-docker system df -v
-```
-
 ## Production Deployment
 
 ### Build for Production
@@ -397,7 +366,7 @@ docker compose --profile prod up --build -d
 
 - [ ] Set `NODE_ENV=production` in `.env`
 - [ ] Change all default database passwords
-- [ ] Enable SSL/TLS for Kong
+- [ ] Enable SSL/TLS for frontend
 - [ ] Configure proper logging
 - [ ] Set up monitoring
 - [ ] Enable automated backups
@@ -517,7 +486,8 @@ npm run dev:build
 4. **Volume persistence**: Data survives container restarts (unless you use `-v`)
 5. **Environment changes**: Some changes require rebuild, others just restart
 6. **Port conflicts**: Use `.env` to customize ports if defaults are taken
-7. **Resource usage**: Monitor with `docker stats` to prevent resource exhaustion
+7. **gRPC communication**: Services communicate via gRPC (ports 50051-50053), not HTTP
+8. **BFF pattern**: Frontend uses Next.js API Routes to call gRPC services
 
 ---
 

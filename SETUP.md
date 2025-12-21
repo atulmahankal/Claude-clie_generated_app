@@ -37,17 +37,14 @@ npm run dev:build
 This single command starts:
 - ✅ 3 PostgreSQL databases
 - ✅ 3 Backend microservices (Auth, Todos, Fundflow)
-- ✅ 1 Next.js frontend
-- ✅ Kong API gateway
+- ✅ 1 Next.js frontend (with BFF API Routes)
 - ✅ Mailpit email testing tool
 
 ### 3. Access the Application
 
 **Wait 30-60 seconds** for all services to start, then access:
 
-- **Frontend**: http://localhost:3010
-- **Kong Gateway**: http://localhost:8010
-- **Kong Admin**: http://localhost:8011
+- **Frontend (Main App)**: http://localhost:3010
 - **Mailpit (Emails)**: http://localhost:8030
 
 **Health Checks:**
@@ -67,31 +64,36 @@ This application uses a **microservices architecture**:
 ┌─────────────┐
 │   Browser   │
 └──────┬──────┘
-       │
+       │ HTTP/HTTPS
        ▼
-┌─────────────┐     ┌──────────────┐
-│    Kong     │────▶│   Frontend   │
-│  (Gateway)  │     │  (Next.js)   │
-└──────┬──────┘     └──────────────┘
-       │
-       ├────────┬────────┬────────┐
-       ▼        ▼        ▼        ▼
-   ┌──────┐ ┌──────┐ ┌──────┐ ┌───────┐
-   │ Auth │ │Todos │ │Fund  │ │Mail   │
-   │      │ │      │ │flow  │ │pit    │
-   └───┬──┘ └───┬──┘ └───┬──┘ └───────┘
-       │        │        │
-       ▼        ▼        ▼
-    ┌────┐   ┌────┐   ┌────┐
-    │DB  │   │DB  │   │DB  │
-    └────┘   └────┘   └────┘
+┌─────────────────┐
+│    Next.js      │
+│   Frontend      │
+│  (port 3010)    │
+├─────────────────┤
+│  API Routes     │  ◄─── BFF Layer
+│  (gRPC clients) │
+└────────┬────────┘
+         │ gRPC
+         ├────────┬────────┬────────┐
+         ▼        ▼        ▼        ▼
+     ┌──────┐ ┌──────┐ ┌──────┐ ┌───────┐
+     │ Auth │ │Todos │ │Fund  │ │Mail   │
+     │      │ │      │ │flow  │ │pit    │
+     └───┬──┘ └───┬──┘ └───┬──┘ └───────┘
+         │        │        │
+         ▼        ▼        ▼
+      ┌────┐   ┌────┐   ┌────┐
+      │DB  │   │DB  │   │DB  │
+      └────┘   └────┘   └────┘
 ```
 
 **Key Benefits:**
 - Each service scales independently
 - Database-per-service isolation
 - gRPC for fast inter-service communication
-- Kong gateway for unified HTTP access
+- Next.js BFF pattern for type-safe API layer
+- Single entry point (Next.js frontend)
 
 ### Environment Configuration
 
@@ -106,15 +108,16 @@ AUTH_DB_PORT=5433
 SHARED_DB_PORT=5435
 FUNDFLOW_DB_PORT=5434
 
-# Service ports
+# Service ports (HTTP for debugging, gRPC for communication)
 AUTH_HTTP_PORT=3011
+AUTH_GRPC_PORT=50051
 TODOS_HTTP_PORT=3002
+TODOS_GRPC_PORT=50052
 FUNDFLOW_HTTP_PORT=3003
-FRONTEND_PORT=3010
+FUNDFLOW_GRPC_PORT=50053
 
-# Gateway ports
-KONG_PROXY_PORT=8010
-KONG_ADMIN_PORT=8011
+# Frontend
+FRONTEND_PORT=3010
 
 # Email testing
 MAILPIT_UI_PORT=8030
@@ -141,7 +144,7 @@ npm run prod
 # Individual services
 npm run service:auth      # Just auth service + database
 npm run service:todos     # Just todos service + database
-npm run service:frontend  # Just frontend (requires services)
+npm run service:frontend  # Just frontend (requires services to be running)
 
 # Custom combinations
 docker compose --profile auth --profile frontend up
@@ -283,11 +286,10 @@ npm run clean
 docker ps
 ```
 
-Should show 9 containers running:
+Should show 8 containers running:
 - jam-auth-db, jam-shared-db, jam-fundflow-db (databases)
 - jam-auth-service, jam-todos-service, jam-fundflow-service (services)
-- jam-frontend (Next.js)
-- jam-kong (gateway)
+- jam-frontend (Next.js with BFF)
 - jam-mailpit (email)
 
 #### 2. Health Check All Services
@@ -304,17 +306,13 @@ Each should return:
 {"status":"healthy","timestamp":"...","service":"..."}
 ```
 
-#### 3. Test Gateway Routing
+#### 3. Test Frontend
 
 ```bash
-# Frontend through Kong
-curl http://localhost:8010/ | head -20
-
-# Direct frontend access
+# Frontend access
 curl http://localhost:3010/ | head -20
 
-# Kong admin API
-curl http://localhost:8011/services
+# Should return Next.js HTML
 ```
 
 #### 4. Test Email System
@@ -333,7 +331,7 @@ docker ps
 
 # Check for port conflicts
 sudo lsof -i :3010  # Frontend
-sudo lsof -i :8010  # Kong
+sudo lsof -i :50051 # Auth gRPC
 sudo lsof -i :5433  # Auth DB
 
 # View service status
@@ -417,9 +415,9 @@ Before deploying to production:
 
 - [ ] Change all default passwords
 - [ ] Use environment-specific .env files
-- [ ] Enable SSL/TLS for Kong
+- [ ] Enable SSL/TLS for frontend (HTTPS)
 - [ ] Set up proper CORS policies
-- [ ] Configure rate limiting in Kong
+- [ ] Configure rate limiting in Next.js middleware
 - [ ] Set up monitoring and logging
 - [ ] Configure automated backups
 - [ ] Use secrets management (not .env)

@@ -1,0 +1,227 @@
+syntax = "proto3";
+
+package auth;
+
+// Authentication Service
+service AuthService {
+  // User authentication
+  rpc Login (LoginRequest) returns (LoginResponse);
+  rpc Logout (LogoutRequest) returns (LogoutResponse);
+  rpc RefreshToken (RefreshTokenRequest) returns (RefreshTokenResponse);
+
+  // User registration
+  rpc Register (RegisterRequest) returns (RegisterResponse);
+  rpc VerifyEmail (VerifyEmailRequest) returns (VerifyEmailResponse);
+
+  // Password management
+  rpc ForgotPassword (ForgotPasswordRequest) returns (ForgotPasswordResponse);
+  rpc ResetPassword (ResetPasswordRequest) returns (ResetPasswordResponse);
+  rpc ChangePassword (ChangePasswordRequest) returns (ChangePasswordResponse);
+
+  // Profile management
+  rpc GetProfile (GetProfileRequest) returns (GetProfileResponse);
+  rpc UpdateProfile (UpdateProfileRequest) returns (UpdateProfileResponse);
+
+  // Two-factor authentication
+  rpc Enable2FA (Enable2FARequest) returns (Enable2FAResponse);
+  rpc Verify2FA (Verify2FARequest) returns (Verify2FAResponse);
+  rpc Disable2FA (Disable2FARequest) returns (Disable2FAResponse);
+
+  // Session management
+  rpc GetActiveSessions (GetActiveSessionsRequest) returns (GetActiveSessionsResponse);
+  rpc RevokeSession (RevokeSessionRequest) returns (RevokeSessionResponse);
+}
+
+// Common messages
+message User {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+  bool email_verified = 4;
+  bool two_factor_enabled = 5;
+  string created_at = 6;
+  string updated_at = 7;
+}
+
+message Session {
+  string id = 1;
+  string user_agent = 2;
+  string ip_address = 3;
+  string created_at = 4;
+  string last_active = 5;
+  bool is_current = 6;
+}
+
+// Login
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+  string two_factor_code = 3;
+}
+
+message LoginResponse {
+  bool success = 1;
+  string message = 2;
+  string access_token = 3;
+  string refresh_token = 4;
+  User user = 5;
+  bool requires_2fa = 6;
+}
+
+// Logout
+message LogoutRequest {
+  string access_token = 1;
+}
+
+message LogoutResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Refresh Token
+message RefreshTokenRequest {
+  string refresh_token = 1;
+}
+
+message RefreshTokenResponse {
+  bool success = 1;
+  string message = 2;
+  string access_token = 3;
+  string refresh_token = 4;
+}
+
+// Register
+message RegisterRequest {
+  string email = 1;
+  string password = 2;
+  string name = 3;
+}
+
+message RegisterResponse {
+  bool success = 1;
+  string message = 2;
+  User user = 3;
+}
+
+// Verify Email
+message VerifyEmailRequest {
+  string token = 1;
+}
+
+message VerifyEmailResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Forgot Password
+message ForgotPasswordRequest {
+  string email = 1;
+}
+
+message ForgotPasswordResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Reset Password
+message ResetPasswordRequest {
+  string token = 1;
+  string new_password = 2;
+}
+
+message ResetPasswordResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Change Password
+message ChangePasswordRequest {
+  string access_token = 1;
+  string current_password = 2;
+  string new_password = 3;
+}
+
+message ChangePasswordResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Get Profile
+message GetProfileRequest {
+  string access_token = 1;
+}
+
+message GetProfileResponse {
+  bool success = 1;
+  string message = 2;
+  User user = 3;
+}
+
+// Update Profile
+message UpdateProfileRequest {
+  string access_token = 1;
+  string name = 2;
+}
+
+message UpdateProfileResponse {
+  bool success = 1;
+  string message = 2;
+  User user = 3;
+}
+
+// Enable 2FA
+message Enable2FARequest {
+  string access_token = 1;
+}
+
+message Enable2FAResponse {
+  bool success = 1;
+  string message = 2;
+  string secret = 3;
+  string qr_code = 4;
+}
+
+// Verify 2FA
+message Verify2FARequest {
+  string access_token = 1;
+  string code = 2;
+}
+
+message Verify2FAResponse {
+  bool success = 1;
+  string message = 2;
+  repeated string backup_codes = 3;
+}
+
+// Disable 2FA
+message Disable2FARequest {
+  string access_token = 1;
+  string password = 2;
+}
+
+message Disable2FAResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Get Active Sessions
+message GetActiveSessionsRequest {
+  string access_token = 1;
+}
+
+message GetActiveSessionsResponse {
+  bool success = 1;
+  string message = 2;
+  repeated Session sessions = 3;
+}
+
+// Revoke Session
+message RevokeSessionRequest {
+  string access_token = 1;
+  string session_id = 2;
+}
+
+message RevokeSessionResponse {
+  bool success = 1;
+  string message = 2;
+}

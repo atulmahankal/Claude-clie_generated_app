@@ -87,6 +87,3 @@ yarn-error.log*
 # OS
 .DS_Store
 Thumbs.db
-
-# Old structure (optional - uncomment to ignore)
-# old_structure/

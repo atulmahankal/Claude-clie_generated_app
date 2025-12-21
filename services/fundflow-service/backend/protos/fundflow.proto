@@ -1,0 +1,269 @@
+syntax = "proto3";
+
+package fundflow;
+
+// Fundflow Service - Financial tracking
+service FundflowService {
+  // Account management
+  rpc CreateAccount (CreateAccountRequest) returns (CreateAccountResponse);
+  rpc GetAccount (GetAccountRequest) returns (GetAccountResponse);
+  rpc GetAccounts (GetAccountsRequest) returns (GetAccountsResponse);
+  rpc UpdateAccount (UpdateAccountRequest) returns (UpdateAccountResponse);
+  rpc DeleteAccount (DeleteAccountRequest) returns (DeleteAccountResponse);
+
+  // Transaction management
+  rpc CreateTransaction (CreateTransactionRequest) returns (CreateTransactionResponse);
+  rpc GetTransaction (GetTransactionRequest) returns (GetTransactionResponse);
+  rpc GetTransactions (GetTransactionsRequest) returns (GetTransactionsResponse);
+  rpc UpdateTransaction (UpdateTransactionRequest) returns (UpdateTransactionResponse);
+  rpc DeleteTransaction (DeleteTransactionRequest) returns (DeleteTransactionResponse);
+
+  // Category management
+  rpc GetCategories (GetCategoriesRequest) returns (GetCategoriesResponse);
+  rpc CreateCategory (CreateCategoryRequest) returns (CreateCategoryResponse);
+
+  // Reports and analytics
+  rpc GetSummary (GetSummaryRequest) returns (GetSummaryResponse);
+  rpc GetMonthlyReport (GetMonthlyReportRequest) returns (GetMonthlyReportResponse);
+}
+
+// Account message
+message Account {
+  string id = 1;
+  string user_id = 2;
+  string name = 3;
+  string type = 4;  // checking, savings, credit, cash
+  double balance = 5;
+  string currency = 6;
+  string created_at = 7;
+  string updated_at = 8;
+}
+
+// Transaction message
+message Transaction {
+  string id = 1;
+  string user_id = 2;
+  string account_id = 3;
+  string category_id = 4;
+  string type = 5;  // income, expense, transfer
+  double amount = 6;
+  string description = 7;
+  string date = 8;
+  string created_at = 9;
+  string updated_at = 10;
+}
+
+// Category message
+message Category {
+  string id = 1;
+  string user_id = 2;
+  string name = 3;
+  string type = 4;  // income, expense
+  string icon = 5;
+  string color = 6;
+}
+
+// Create Account
+message CreateAccountRequest {
+  string user_id = 1;
+  string name = 2;
+  string type = 3;
+  double initial_balance = 4;
+  string currency = 5;
+}
+
+message CreateAccountResponse {
+  bool success = 1;
+  string message = 2;
+  Account account = 3;
+}
+
+// Get Account
+message GetAccountRequest {
+  string user_id = 1;
+  string account_id = 2;
+}
+
+message GetAccountResponse {
+  bool success = 1;
+  string message = 2;
+  Account account = 3;
+}
+
+// Get Accounts
+message GetAccountsRequest {
+  string user_id = 1;
+}
+
+message GetAccountsResponse {
+  bool success = 1;
+  string message = 2;
+  repeated Account accounts = 3;
+}
+
+// Update Account
+message UpdateAccountRequest {
+  string user_id = 1;
+  string account_id = 2;
+  string name = 3;
+  string type = 4;
+}
+
+message UpdateAccountResponse {
+  bool success = 1;
+  string message = 2;
+  Account account = 3;
+}
+
+// Delete Account
+message DeleteAccountRequest {
+  string user_id = 1;
+  string account_id = 2;
+}
+
+message DeleteAccountResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Create Transaction
+message CreateTransactionRequest {
+  string user_id = 1;
+  string account_id = 2;
+  string category_id = 3;
+  string type = 4;
+  double amount = 5;
+  string description = 6;
+  string date = 7;
+}
+
+message CreateTransactionResponse {
+  bool success = 1;
+  string message = 2;
+  Transaction transaction = 3;
+}
+
+// Get Transaction
+message GetTransactionRequest {
+  string user_id = 1;
+  string transaction_id = 2;
+}
+
+message GetTransactionResponse {
+  bool success = 1;
+  string message = 2;
+  Transaction transaction = 3;
+}
+
+// Get Transactions
+message GetTransactionsRequest {
+  string user_id = 1;
+  string account_id = 2;
+  string category_id = 3;
+  string type = 4;
+  string start_date = 5;
+  string end_date = 6;
+  int32 page = 7;
+  int32 limit = 8;
+}
+
+message GetTransactionsResponse {
+  bool success = 1;
+  string message = 2;
+  repeated Transaction transactions = 3;
+  int32 total = 4;
+  int32 page = 5;
+  int32 total_pages = 6;
+}
+
+// Update Transaction
+message UpdateTransactionRequest {
+  string user_id = 1;
+  string transaction_id = 2;
+  string category_id = 3;
+  double amount = 4;
+  string description = 5;
+  string date = 6;
+}
+
+message UpdateTransactionResponse {
+  bool success = 1;
+  string message = 2;
+  Transaction transaction = 3;
+}
+
+// Delete Transaction
+message DeleteTransactionRequest {
+  string user_id = 1;
+  string transaction_id = 2;
+}
+
+message DeleteTransactionResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Get Categories
+message GetCategoriesRequest {
+  string user_id = 1;
+  string type = 2;  // income, expense, or empty for all
+}
+
+message GetCategoriesResponse {
+  bool success = 1;
+  string message = 2;
+  repeated Category categories = 3;
+}
+
+// Create Category
+message CreateCategoryRequest {
+  string user_id = 1;
+  string name = 2;
+  string type = 3;
+  string icon = 4;
+  string color = 5;
+}
+
+message CreateCategoryResponse {
+  bool success = 1;
+  string message = 2;
+  Category category = 3;
+}
+
+// Get Summary
+message GetSummaryRequest {
+  string user_id = 1;
+  string start_date = 2;
+  string end_date = 3;
+}
+
+message GetSummaryResponse {
+  bool success = 1;
+  string message = 2;
+  double total_income = 3;
+  double total_expense = 4;
+  double net_balance = 5;
+}
+
+// Get Monthly Report
+message GetMonthlyReportRequest {
+  string user_id = 1;
+  int32 year = 2;
+  int32 month = 3;
+}
+
+message MonthlyCategory {
+  string category_id = 1;
+  string category_name = 2;
+  double amount = 3;
+  double percentage = 4;
+}
+
+message GetMonthlyReportResponse {
+  bool success = 1;
+  string message = 2;
+  double total_income = 3;
+  double total_expense = 4;
+  repeated MonthlyCategory income_by_category = 5;
+  repeated MonthlyCategory expense_by_category = 6;
+}

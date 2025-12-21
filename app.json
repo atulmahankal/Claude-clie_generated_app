@@ -1,0 +1,43 @@
+{
+    "name": "jamstack",
+    "title": "JAM Stack Application",
+    "description": "A multi-language application built with Node, Python, Go, and PHP.",
+    "version": "1.0.0",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Atul Mahankal",
+            "email": "atulmahankal@gmail.com",
+            "role": "Lead Developer"
+        }
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/your-org/myapp"
+    },
+    "homepage": "https://yourdomain.com",
+    "environment": {
+        "supported_languages": [
+            "node",
+            "python",
+            "go",
+            "php"
+        ],
+        "min_runtime": {
+            "node": "18.x",
+            "python": "3.11",
+            "go": "1.22",
+            "php": "8.3"
+        }
+    },
+    "build": {
+        "docker": {
+            "image_name": "myapp",
+            "maintainer": "atulmahankal@gmail.com"
+        }
+    },
+    "deployment": {
+        "default_port": 8080,
+        "healthcheck_path": "/health"
+    }
+}

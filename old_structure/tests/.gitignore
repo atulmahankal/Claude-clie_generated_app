@@ -1,7 +1,0 @@
-# Ignore all timestamped test result directories
-# Format: YYYY-MM-DD_HH-MM-SS/
-*/
-
-# Keep these files
-!.gitignore
-!README.md

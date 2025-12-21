@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from typing import Optional, Dict, Any
 from datetime import datetime
+from uuid import UUID
 
 
 class ServiceConfigBase(BaseModel):
@@ -13,7 +14,7 @@ class ServiceConfigBase(BaseModel):
     color: str = Field(default="#3B82F6", max_length=20)
     enabled: bool = True
     sort_order: int = 0
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict, validation_alias="service_metadata")
 
 
 class ServiceConfigCreate(ServiceConfigBase):
@@ -29,14 +30,20 @@ class ServiceConfigUpdate(BaseModel):
     color: Optional[str] = Field(None, max_length=20)
     enabled: Optional[bool] = None
     sort_order: Optional[int] = None
-    metadata: Optional[Dict[str, Any]] = None
+    service_metadata: Optional[Dict[str, Any]] = Field(None, alias="metadata")
 
 
 class ServiceConfigResponse(ServiceConfigBase):
     """Schema for service configuration response"""
-    id: str
+    id: UUID
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True,
+        "populate_by_name": True
+    }
+
+    @field_serializer("id")
+    def serialize_id(self, id: UUID) -> str:
+        return str(id)

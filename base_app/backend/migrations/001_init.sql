@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS service_configs (
     color VARCHAR(20) DEFAULT '#3B82F6',
     enabled BOOLEAN DEFAULT true,
     sort_order INTEGER DEFAULT 0,
-    metadata JSONB DEFAULT '{}',
+    service_metadata JSONB DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );

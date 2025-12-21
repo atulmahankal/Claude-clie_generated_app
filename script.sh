@@ -2,7 +2,7 @@
 # JAM Stack Application Management Script
 # Comprehensive script for managing the micro-frontend application
 
-set -e
+# Note: Not using 'set -e' as it interferes with interactive menu arithmetic
 
 # Colors for output
 RED='\033[0;31m'
@@ -14,7 +14,36 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Script version
-VERSION="2.0.0"
+VERSION="2.1.0"
+
+# Menu categories for organization
+declare -A MENU_ITEMS
+MENU_ITEMS=(
+    # Start commands (when not running)
+    ["dev"]="Start Development|Start all services in development mode|start"
+    ["dev-build"]="Build & Start|Build and start all services|start"
+    ["prod"]="Start Production|Start in production mode (detached)|start"
+    ["service"]="Start Service|Start specific service(s)|start"
+
+    # Running commands (when containers are up)
+    ["stop"]="Stop Services|Stop all running services|running"
+    ["restart"]="Restart Services|Restart all running services|running"
+    ["logs"]="View Logs|Follow logs from all services|running"
+    ["status"]="Show Status|Display container status|running"
+    ["health"]="Health Check|Check service health endpoints|running"
+    ["db-connect"]="Database Connect|Connect to a service database|running"
+
+    # Hostname commands
+    ["setup-hostname"]="Setup Hostname|Add custom hostname (requires sudo)|hostname_not_set"
+    ["remove-hostname"]="Remove Hostname|Remove custom hostname (requires sudo)|hostname_set"
+    ["show-hostname"]="Show Hostname|Display hostname configuration|always"
+
+    # Utility commands (always available)
+    ["rebuild"]="Rebuild All|Rebuild all services without cache|always"
+    ["clean"]="Clean Up|Remove containers and volumes|always"
+    ["info"]="Show Info|Display application information|always"
+    ["help"]="Full Help|Show detailed help documentation|always"
+)
 
 # Helper functions
 print_header() {
@@ -38,6 +67,344 @@ print_warning() {
 
 print_info() {
     echo -e "${BLUE}ℹ️  $1${NC}"
+}
+
+# State detection functions
+is_any_container_running() {
+    local count=$(docker compose ps -q 2>/dev/null | wc -l)
+    [ "$count" -gt 0 ]
+}
+
+is_db_container_running() {
+    docker compose ps 2>/dev/null | grep -qE "(auth-db|todos-db|fundflow-db).*running"
+}
+
+is_hostname_configured() {
+    local HOSTNAME=$(get_hostname)
+    grep -q "127.0.0.1.*$HOSTNAME" /etc/hosts 2>/dev/null
+}
+
+get_running_services_count() {
+    docker compose ps -q 2>/dev/null | wc -l
+}
+
+# Build dynamic menu based on current state
+build_menu() {
+    DYNAMIC_MENU=()
+
+    local containers_running=false
+    local db_running=false
+    local hostname_set=false
+
+    # Check states (suppress errors)
+    if is_any_container_running 2>/dev/null; then
+        containers_running=true
+    fi
+
+    if is_db_container_running 2>/dev/null; then
+        db_running=true
+    fi
+
+    if is_hostname_configured 2>/dev/null; then
+        hostname_set=true
+    fi
+
+    # Define menu order
+    local menu_order
+
+    if [ "$containers_running" = true ]; then
+        # Services are running - show management options first
+        menu_order=("stop" "restart" "logs" "status" "health")
+        [ "$db_running" = true ] && menu_order+=("db-connect")
+        menu_order+=("---") # separator
+        menu_order+=("dev" "dev-build" "prod")
+    else
+        # Services not running - show start options first
+        menu_order=("dev" "dev-build" "prod" "service")
+    fi
+
+    # Add separator and hostname section
+    menu_order+=("---")
+    if [ "$hostname_set" = true ]; then
+        menu_order+=("show-hostname" "remove-hostname")
+    else
+        menu_order+=("setup-hostname" "show-hostname")
+    fi
+
+    # Add separator and utilities
+    menu_order+=("---")
+    menu_order+=("rebuild" "clean" "info" "help")
+
+    # Build the menu array
+    for cmd in "${menu_order[@]}"; do
+        if [ "$cmd" = "---" ]; then
+            DYNAMIC_MENU+=("---|---|---")
+        elif [ -n "${MENU_ITEMS[$cmd]}" ]; then
+            DYNAMIC_MENU+=("$cmd|${MENU_ITEMS[$cmd]}")
+        fi
+    done
+}
+
+# Interactive menu function
+show_interactive_menu() {
+    local selected=0
+    local first_draw=true
+
+    # Hide cursor
+    tput civis
+
+    # Trap to restore cursor on exit
+    trap 'tput cnorm; tput clear' EXIT INT TERM
+
+    # Build menu once (state check only on initial load)
+    build_menu
+    local total=${#DYNAMIC_MENU[@]}
+
+    # Skip separators when counting selectable items
+    local selectable_indices=()
+    for i in "${!DYNAMIC_MENU[@]}"; do
+        IFS='|' read -r cmd rest <<< "${DYNAMIC_MENU[$i]}"
+        if [ "$cmd" != "---" ]; then
+            selectable_indices+=("$i")
+        fi
+    done
+
+    local num_selectable=${#selectable_indices[@]}
+
+    # Clear screen once and draw static header
+    clear
+    print_header
+
+    # Show status indicator
+    if is_any_container_running 2>/dev/null; then
+        local count=$(get_running_services_count)
+        echo -e "${GREEN}●${NC} ${count} container(s) running"
+    else
+        echo -e "${RED}○${NC} No containers running"
+    fi
+    echo ""
+    echo -e "Use ${CYAN}↑/↓${NC} arrows, ${CYAN}Enter${NC} to select, ${CYAN}q${NC} to quit"
+    echo ""
+
+    # Save cursor position for menu start
+    local menu_start_line=$(tput lines)
+    tput sc
+
+    while true; do
+        # Move cursor to menu start position
+        tput rc
+
+        # Display menu options (inline format like --help)
+        for i in "${!DYNAMIC_MENU[@]}"; do
+            IFS='|' read -r cmd title desc condition <<< "${DYNAMIC_MENU[$i]}"
+
+            # Clear line first
+            tput el
+
+            if [ "$cmd" = "---" ]; then
+                # Separator line
+                echo ""
+            else
+                if [ $i -eq ${selectable_indices[$selected]} ]; then
+                    # Highlighted option with description
+                    printf "  ${CYAN}▶${NC} ${GREEN}%-20s${NC} ${BLUE}%s${NC}\n" "$title" "$desc"
+                else
+                    # Normal option with description
+                    printf "    ${YELLOW}%-20s${NC} ${BLUE}%s${NC}\n" "$title" "$desc"
+                fi
+            fi
+        done
+
+        # Draw footer only on first draw
+        if [ "$first_draw" = true ]; then
+            echo ""
+            echo -e "${BLUE}────────────────────────────────────────────────────────────${NC}"
+            echo -e "  ${CYAN}Tip:${NC} Run ${YELLOW}./script.sh --help${NC} for full command reference"
+            first_draw=false
+        fi
+
+        # Read single keypress
+        read -rsn1 key
+
+        # Handle arrow keys (they send escape sequences)
+        if [[ $key == $'\x1b' ]]; then
+            read -rsn2 key
+            case $key in
+                '[A') # Up arrow
+                    selected=$((selected - 1))
+                    if [ $selected -lt 0 ]; then
+                        selected=$((num_selectable - 1))
+                    fi
+                    ;;
+                '[B') # Down arrow
+                    selected=$((selected + 1))
+                    if [ $selected -ge $num_selectable ]; then
+                        selected=0
+                    fi
+                    ;;
+            esac
+        elif [[ $key == '' ]]; then  # Enter key
+            # Get selected command
+            local selected_idx=${selectable_indices[$selected]}
+            IFS='|' read -r cmd title desc condition <<< "${DYNAMIC_MENU[$selected_idx]}"
+
+            # Restore cursor and clear
+            tput cnorm
+            trap - EXIT INT TERM
+            clear
+
+            # Execute the command
+            echo -e "${GREEN}Executing:${NC} ./script.sh $cmd"
+            echo ""
+
+            # Handle commands that need additional input
+            case $cmd in
+                db-connect)
+                    show_db_select_menu
+                    ;;
+                service)
+                    show_service_select_menu
+                    ;;
+                *)
+                    main "$cmd"
+                    ;;
+            esac
+            exit 0
+        elif [[ $key == 'q' ]] || [[ $key == 'Q' ]]; then
+            # Quit
+            tput cnorm
+            trap - EXIT INT TERM
+            clear
+            echo "Goodbye!"
+            exit 0
+        fi
+    done
+}
+
+# Service selection submenu
+show_service_select_menu() {
+    local svc_names=("auth" "todos" "fundflow" "base" "auth todos" "All (dev)")
+    local svc_commands=("auth" "todos" "fundflow" "base" "auth todos" "dev")
+    local svc_descs=(
+        "Authentication service"
+        "Todo management service"
+        "Financial tracking service"
+        "Base dashboard app"
+        "Auth + Todos services"
+        "All services + Mailpit"
+    )
+    local selected=0
+    local total=${#svc_names[@]}
+
+    tput civis
+    clear
+    print_header
+    echo -e "${GREEN}Select service to start:${NC} (↑/↓ arrows, Enter to select, q to go back)"
+    echo ""
+    tput sc
+
+    while true; do
+        tput rc
+
+        for i in "${!svc_names[@]}"; do
+            tput el
+            if [ $i -eq $selected ]; then
+                printf "  ${CYAN}▶${NC} ${GREEN}%-18s${NC} ${BLUE}%s${NC}\n" "${svc_names[$i]}" "${svc_descs[$i]}"
+            else
+                printf "    ${YELLOW}%-18s${NC} ${BLUE}%s${NC}\n" "${svc_names[$i]}" "${svc_descs[$i]}"
+            fi
+        done
+
+        read -rsn1 key
+
+        if [[ $key == $'\x1b' ]]; then
+            read -rsn2 key
+            case $key in
+                '[A') selected=$((selected - 1)); [ $selected -lt 0 ] && selected=$((total - 1)) ;;
+                '[B') selected=$((selected + 1)); [ $selected -ge $total ] && selected=0 ;;
+            esac
+        elif [[ $key == '' ]]; then
+            tput cnorm
+            clear
+            local svc="${svc_commands[$selected]}"
+            if [ "$svc" = "dev" ]; then
+                cmd_dev
+            else
+                cmd_service "$svc"
+            fi
+            exit 0
+        elif [[ $key == 'q' ]] || [[ $key == 'Q' ]]; then
+            tput cnorm
+            show_interactive_menu
+            exit 0
+        fi
+    done
+}
+
+# Database selection submenu
+show_db_select_menu() {
+    # Check which databases are running
+    local db_options=()
+    local db_descs=()
+    local db_all=("auth" "todos" "fundflow")
+    local db_all_descs=("Authentication database" "Todo management database" "Financial tracking database")
+
+    for i in "${!db_all[@]}"; do
+        local db="${db_all[$i]}"
+        if docker compose ps 2>/dev/null | grep -q "${db}-db.*running"; then
+            db_options+=("$db")
+            db_descs+=("${db_all_descs[$i]}")
+        fi
+    done
+
+    if [ ${#db_options[@]} -eq 0 ]; then
+        print_error "No database containers are running"
+        echo ""
+        print_info "Start services first: ./script.sh dev"
+        exit 1
+    fi
+
+    local selected=0
+    local total=${#db_options[@]}
+
+    tput civis
+    clear
+    print_header
+    echo -e "${GREEN}Select database to connect:${NC} (↑/↓ arrows, Enter to select, q to go back)"
+    echo ""
+    tput sc
+
+    while true; do
+        tput rc
+
+        for i in "${!db_options[@]}"; do
+            tput el
+            if [ $i -eq $selected ]; then
+                printf "  ${CYAN}▶${NC} ${GREEN}%-12s${NC} ${BLUE}%s${NC}\n" "${db_options[$i]}" "${db_descs[$i]}"
+            else
+                printf "    ${YELLOW}%-12s${NC} ${BLUE}%s${NC}\n" "${db_options[$i]}" "${db_descs[$i]}"
+            fi
+        done
+
+        read -rsn1 key
+
+        if [[ $key == $'\x1b' ]]; then
+            read -rsn2 key
+            case $key in
+                '[A') selected=$((selected - 1)); [ $selected -lt 0 ] && selected=$((total - 1)) ;;
+                '[B') selected=$((selected + 1)); [ $selected -ge $total ] && selected=0 ;;
+            esac
+        elif [[ $key == '' ]]; then
+            tput cnorm
+            clear
+            cmd_db_connect "${db_options[$selected]}"
+            exit 0
+        elif [[ $key == 'q' ]] || [[ $key == 'Q' ]]; then
+            tput cnorm
+            show_interactive_menu
+            exit 0
+        fi
+    done
 }
 
 # Load hostname from .env file
@@ -635,8 +1002,14 @@ cmd_prune() {
 
 # Main command router
 main() {
+    # Handle no arguments - show interactive menu
+    if [ -z "$1" ]; then
+        show_interactive_menu
+        exit 0
+    fi
+
     # Handle help flags
-    if [ "$1" = "--help" ] || [ "$1" = "-h" ] || [ -z "$1" ]; then
+    if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
         show_help
         exit 0
     fi

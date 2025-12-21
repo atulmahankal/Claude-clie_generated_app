@@ -19,7 +19,7 @@ class ServiceConfig(Base):
     color = Column(String(20), default="#3B82F6")
     enabled = Column(Boolean, default=True, index=True)
     sort_order = Column(Integer, default=0, index=True)
-    metadata = Column(JSONB, default={})
+    service_metadata = Column(JSONB, default={})
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -34,7 +34,7 @@ class ServiceConfig(Base):
             'color': self.color,
             'enabled': self.enabled,
             'sort_order': self.sort_order,
-            'metadata': self.metadata,
+            'metadata': self.service_metadata,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

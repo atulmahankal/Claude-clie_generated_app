@@ -1,5 +1,3 @@
-version: '3.9'
-
 networks:
   jam-network:
     driver: bridge
@@ -82,8 +80,8 @@ services:
 
   base-app-frontend:
     build:
-      context: .
-      dockerfile: base_app/frontend/Dockerfile
+      context: ./base_app/frontend
+      dockerfile: Dockerfile
     container_name: jam-base-frontend
     profiles: ["dev", "prod", "base"]
     environment:
@@ -149,8 +147,8 @@ services:
 
   auth-frontend:
     build:
-      context: .
-      dockerfile: services/auth-service/frontend/Dockerfile
+      context: ./services/auth-service/frontend
+      dockerfile: Dockerfile
     container_name: jam-auth-frontend
     profiles: ["dev", "prod", "auth"]
     environment:
@@ -211,8 +209,8 @@ services:
 
   todos-frontend:
     build:
-      context: .
-      dockerfile: services/todos-service/frontend/Dockerfile
+      context: ./services/todos-service/frontend
+      dockerfile: Dockerfile
     container_name: jam-todos-frontend
     profiles: ["dev", "prod", "todos"]
     environment:
@@ -273,8 +271,8 @@ services:
 
   fundflow-frontend:
     build:
-      context: .
-      dockerfile: services/fundflow-service/frontend/Dockerfile
+      context: ./services/fundflow-service/frontend
+      dockerfile: Dockerfile
     container_name: jam-fundflow-frontend
     profiles: ["dev", "prod", "fundflow"]
     environment:

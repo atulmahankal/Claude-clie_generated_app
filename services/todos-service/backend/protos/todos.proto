@@ -1,0 +1,126 @@
+syntax = "proto3";
+
+package todos;
+
+// Todos Service
+service TodosService {
+  // Todo CRUD operations
+  rpc CreateTodo (CreateTodoRequest) returns (CreateTodoResponse);
+  rpc GetTodo (GetTodoRequest) returns (GetTodoResponse);
+  rpc GetTodos (GetTodosRequest) returns (GetTodosResponse);
+  rpc UpdateTodo (UpdateTodoRequest) returns (UpdateTodoResponse);
+  rpc DeleteTodo (DeleteTodoRequest) returns (DeleteTodoResponse);
+
+  // Todo status
+  rpc ToggleTodo (ToggleTodoRequest) returns (ToggleTodoResponse);
+
+  // Bulk operations
+  rpc DeleteCompletedTodos (DeleteCompletedTodosRequest) returns (DeleteCompletedTodosResponse);
+}
+
+// Todo message
+message Todo {
+  string id = 1;
+  string user_id = 2;
+  string title = 3;
+  string description = 4;
+  bool completed = 5;
+  string priority = 6;  // low, medium, high
+  string due_date = 7;
+  string created_at = 8;
+  string updated_at = 9;
+}
+
+// Create Todo
+message CreateTodoRequest {
+  string user_id = 1;
+  string title = 2;
+  string description = 3;
+  string priority = 4;
+  string due_date = 5;
+}
+
+message CreateTodoResponse {
+  bool success = 1;
+  string message = 2;
+  Todo todo = 3;
+}
+
+// Get Todo
+message GetTodoRequest {
+  string user_id = 1;
+  string todo_id = 2;
+}
+
+message GetTodoResponse {
+  bool success = 1;
+  string message = 2;
+  Todo todo = 3;
+}
+
+// Get Todos (list)
+message GetTodosRequest {
+  string user_id = 1;
+  string filter = 2;  // all, active, completed
+  int32 page = 3;
+  int32 limit = 4;
+}
+
+message GetTodosResponse {
+  bool success = 1;
+  string message = 2;
+  repeated Todo todos = 3;
+  int32 total = 4;
+  int32 page = 5;
+  int32 total_pages = 6;
+}
+
+// Update Todo
+message UpdateTodoRequest {
+  string user_id = 1;
+  string todo_id = 2;
+  string title = 3;
+  string description = 4;
+  string priority = 5;
+  string due_date = 6;
+}
+
+message UpdateTodoResponse {
+  bool success = 1;
+  string message = 2;
+  Todo todo = 3;
+}
+
+// Delete Todo
+message DeleteTodoRequest {
+  string user_id = 1;
+  string todo_id = 2;
+}
+
+message DeleteTodoResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Toggle Todo
+message ToggleTodoRequest {
+  string user_id = 1;
+  string todo_id = 2;
+}
+
+message ToggleTodoResponse {
+  bool success = 1;
+  string message = 2;
+  Todo todo = 3;
+}
+
+// Delete Completed Todos
+message DeleteCompletedTodosRequest {
+  string user_id = 1;
+}
+
+message DeleteCompletedTodosResponse {
+  bool success = 1;
+  string message = 2;
+  int32 deleted_count = 3;
+}

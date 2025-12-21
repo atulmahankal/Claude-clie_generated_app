@@ -1,6 +1,6 @@
 'use client'
 
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@jam/shared-ui'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui'
 import { Shield, Key, Lock, Users } from 'lucide-react'
 
 export default function AuthPage() {

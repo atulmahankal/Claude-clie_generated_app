@@ -1,8 +1,8 @@
 {
     "name": "jamstack",
-    "title": "JAM Stack Application",
+    "title": "JAM Stack Application Manager",
     "description": "A multi-language application built with Node, Python, Go, and PHP.",
-    "version": "1.0.0",
+    "version": "2.1.0",
     "license": "MIT",
     "authors": [
         {

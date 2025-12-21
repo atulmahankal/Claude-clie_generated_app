@@ -13,8 +13,17 @@ MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# Script version
-VERSION="2.1.0"
+# Read application info from app.json
+APP_INFO_FILE="app.json"
+if [ -f "$APP_INFO_FILE" ]; then
+    # Using sed for compatibility - avoids jq dependency
+    APP_TITLE=$(grep -o '"title": *"[^"]*"' "$APP_INFO_FILE" | sed -e 's/"title": *"//' -e 's/"//')
+    APP_VERSION=$(grep -o '"version": *"[^"]*"' "$APP_INFO_FILE" | sed -e 's/"version": *"//' -e 's/"//')
+else
+    APP_TITLE="JAM Stack Application Manager"
+    APP_VERSION="2.1.0" # Fallback if app.json is missing
+fi
+
 
 # Menu categories for organization
 declare -A MENU_ITEMS
@@ -36,6 +45,7 @@ MENU_ITEMS=(
     # Hostname commands
     ["setup-hostname"]="Setup Hostname|Add custom hostname (requires sudo)|hostname_not_set"
     ["remove-hostname"]="Remove Hostname|Remove custom hostname (requires sudo)|hostname_set"
+    ["change-hostname"]="Change Hostname|Change the application hostname|always"
     ["show-hostname"]="Show Hostname|Display hostname configuration|always"
 
     # Utility commands (always available)
@@ -47,8 +57,16 @@ MENU_ITEMS=(
 
 # Helper functions
 print_header() {
+    local title_version="${APP_TITLE} v${APP_VERSION}"
+    # Calculate padding for centering the title
+    local header_width=60
+    local title_len=${#title_version}
+    local padding_total=$((header_width - title_len))
+    local padding_left=$((padding_total / 2))
+    local padding_right=$((padding_total - padding_left))
+
     echo -e "${CYAN}╔════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║              ${NC}  ${MAGENTA}JAM Stack Application Manager${NC} v${VERSION}                    ${CYAN}║${NC}"
+    printf "${CYAN}║%*s${MAGENTA}%s${NC}%*s${CYAN}║${NC}\n" "$padding_left" "" "$title_version" "$padding_right" ""
     echo -e "${CYAN}╚════════════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -126,7 +144,7 @@ build_menu() {
     # Add separator and hostname section
     menu_order+=("---")
     if [ "$hostname_set" = true ]; then
-        menu_order+=("show-hostname" "remove-hostname")
+        menu_order+=("show-hostname" "change-hostname" "remove-hostname")
     else
         menu_order+=("setup-hostname" "show-hostname")
     fi
@@ -548,7 +566,7 @@ show_help() {
 
 # Show version
 show_version() {
-    echo "JAM Stack Application Manager v${VERSION}"
+    echo "${APP_TITLE} v${APP_VERSION}"
 }
 
 # Show application info
@@ -578,23 +596,46 @@ show_info() {
     echo ""
 }
 
+
+# Prompt for hostname setup if not configured
+prompt_for_hostname_setup() {
+    if ! is_hostname_configured; then
+        print_warning "Hostname is not configured. The application may not work as expected."
+        local DEFAULT_HOSTNAME=$(get_hostname)
+        read -p "Do you want to set up the default hostname '$DEFAULT_HOSTNAME' now? (Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            # We need sudo for this.
+            if [ "$EUID" -ne 0 ]; then
+                print_error "Hostname setup requires sudo. Please run 'sudo ./script.sh setup-hostname' manually."
+            else
+                cmd_setup_hostname
+            fi
+        fi
+    fi
+}
+
 # Development commands
 cmd_dev() {
+    prompt_for_hostname_setup
     print_info "Starting all services in development mode..."
     docker compose --profile dev up "$@"
 }
 
 cmd_dev_build() {
+    prompt_for_hostname_setup
     print_info "Building and starting all services in development mode..."
     docker compose --profile dev up --build "$@"
 }
 
 cmd_prod() {
+    prompt_for_hostname_setup
     print_info "Starting all services in production mode..."
     docker compose --profile prod up -d "$@"
 }
 
 cmd_prod_build() {
+    prompt_for_hostname_setup
     print_info "Building and starting all services in production mode..."
     docker compose --profile prod up -d --build "$@"
 }
@@ -919,6 +960,58 @@ cmd_remove_hostname() {
     echo ""
 }
 
+cmd_change_hostname() {
+    if [ "$EUID" -ne 0 ]; then
+        print_error "This command requires sudo privileges"
+        echo ""
+        echo "Please run: sudo ./script.sh change-hostname"
+        exit 1
+    fi
+
+    local OLD_HOSTNAME=$(get_hostname)
+
+    if is_hostname_configured; then
+        print_warning "A hostname is already configured: $OLD_HOSTNAME"
+        read -p "Do you want to remove it and set a new one? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_info "Hostname change cancelled."
+            exit 0
+        fi
+        
+        print_info "Removing old hostname: $OLD_HOSTNAME"
+        # Directly remove the old hostname from /etc/hosts
+        sed -i.bak "/127.0.0.1.*$OLD_HOSTNAME/d" /etc/hosts
+        print_success "Removed $OLD_HOSTNAME from /etc/hosts"
+        echo ""
+    fi
+
+    read -p "Enter the new hostname (e.g., myapp.local): " NEW_HOSTNAME
+
+    if [ -z "$NEW_HOSTNAME" ]; then
+        print_error "Hostname cannot be empty."
+        exit 1
+    fi
+    
+    # Update .env file with new hostname
+    if [ -f .env ]; then
+        if grep -q "APP_HOSTNAME=" .env; then
+            sed -i.bak "s/APP_HOSTNAME=.*/APP_HOSTNAME=$NEW_HOSTNAME/" .env
+        else
+            echo "" >> .env
+            echo "APP_HOSTNAME=$NEW_HOSTNAME" >> .env
+        fi
+    else
+        echo "APP_HOSTNAME=$NEW_HOSTNAME" > .env
+    fi
+    print_success "Updated .env with new hostname: $NEW_HOSTNAME"
+    echo ""
+
+    print_info "Now, let's set up the new hostname in /etc/hosts."
+    cmd_setup_hostname
+}
+
+
 cmd_show_hostname() {
     local HOSTNAME=$(get_hostname)
     local MAILPIT_HOSTNAME=$(get_mailpit_hostname)
@@ -1097,6 +1190,9 @@ main() {
         # Hostname
         setup-hostname)
             cmd_setup_hostname "$@"
+            ;;
+        change-hostname)
+            cmd_change_hostname "$@"
             ;;
         remove-hostname)
             cmd_remove_hostname "$@"

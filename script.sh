@@ -269,7 +269,7 @@ show_interactive_menu() {
                     main "$cmd"
                     ;;
             esac
-            exit 0
+            wait_for_user_action
         elif [[ $key == 'q' ]] || [[ $key == 'Q' ]]; then
             # Quit
             tput cnorm
@@ -332,7 +332,7 @@ show_service_select_menu() {
             else
                 cmd_service "$svc"
             fi
-            exit 0
+            wait_for_user_action
         elif [[ $key == 'q' ]] || [[ $key == 'Q' ]]; then
             tput cnorm
             show_interactive_menu
@@ -398,10 +398,30 @@ show_db_select_menu() {
             tput cnorm
             clear
             cmd_db_connect "${db_options[$selected]}"
-            exit 0
+            wait_for_user_action
         elif [[ $key == 'q' ]] || [[ $key == 'Q' ]]; then
             tput cnorm
             show_interactive_menu
+            exit 0
+        fi
+    done
+}
+
+# Function to wait for user action after a command
+wait_for_user_action() {
+    echo ""
+    echo -e "${CYAN}Use Esc to back, q to quit${NC}"
+
+    while true; do
+        read -rsn1 key
+        if [[ $key == $'\x1b' ]]; then # Escape key
+            show_interactive_menu
+            exit 0
+        elif [[ $key == 'q' ]] || [[ $key == 'Q' ]]; then
+            tput cnorm
+            trap - EXIT INT TERM
+            clear
+            echo "Goodbye!"
             exit 0
         fi
     done

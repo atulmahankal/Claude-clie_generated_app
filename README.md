@@ -52,6 +52,7 @@ A full-stack web application built with Next.js 14, Supabase, and Tailwind CSS f
 ### Infrastructure
 - **Containerization**: Docker + Docker Compose
 - **Email Testing**: Mailpit (development)
+- **Database Management**: Adminer (development)
 - **Database Abstraction**: Custom multi-DB engine
 - **BFF Pattern**: Next.js API Routes for backend communication
 
@@ -94,6 +95,7 @@ docker compose down -v                   # Stop and remove volumes (DESTROYS DAT
 **Access the Application:**
 - **Frontend**: http://localhost:3010
 - **Mailpit (Email Testing)**: http://localhost:8030 (dev mode only)
+- **Adminer (Database UI)**: http://localhost:8080 (dev mode only)
 
 **Service Health Endpoints:**
 - Auth: http://localhost:3011/health
@@ -239,6 +241,55 @@ Each microservice has its own PostgreSQL database (database-per-service pattern)
 - Recurring transactions and reminders
 
 **Benefits**: Service independence, technology flexibility, failure isolation.
+
+### Database Access
+
+#### Using Adminer (Web UI)
+
+Access Adminer at http://localhost:8080 when running in dev mode. Login credentials for each database:
+
+**Auth Database:**
+- System: PostgreSQL
+- Server: `auth-db`
+- Username: `postgres`
+- Password: `postgres`
+- Database: `auth`
+
+**Todos Database:**
+- System: PostgreSQL
+- Server: `shared-db`
+- Username: `postgres`
+- Password: `postgres`
+- Database: `shared`
+
+**Fundflow Database:**
+- System: PostgreSQL
+- Server: `fundflow-db`
+- Username: `postgres`
+- Password: `postgres`
+- Database: `fundflow`
+
+#### Using Command Line (psql)
+
+```bash
+# Auth database
+docker exec -it jam-auth-db psql -U postgres -d auth
+
+# Todos database
+docker exec -it jam-shared-db psql -U postgres -d shared
+
+# Fundflow database
+docker exec -it jam-fundflow-db psql -U postgres -d fundflow
+```
+
+#### Using External DB Client
+
+Connect with tools like pgAdmin, DBeaver, TablePlus, or DataGrip:
+- Auth DB: `localhost:5433`
+- Todos DB: `localhost:5435`
+- Fundflow DB: `localhost:5434`
+- Username: `postgres`
+- Password: `postgres`
 
 ## Security
 

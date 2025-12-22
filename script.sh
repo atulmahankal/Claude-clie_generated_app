@@ -30,9 +30,9 @@ declare -A MENU_ITEMS
 MENU_ITEMS=(
     # Start commands (when not running)
     ["dev"]="Start Development|Start all services in development mode|start"
-    ["dev-build"]="Build & Start|Build and start all services|start"
+    ["dev-build"]="Re-build Development|Build and start all services (without cache) in development mode|start"
     ["prod"]="Start Production|Start in production mode (detached)|start"
-    ["service"]="Start Service|Start specific service(s)|start"
+    ["service"]="Re-build Production|Build and start all services in production mode|start (without cache)"
 
     # Running commands (when containers are up)
     ["stop"]="Stop Services|Stop all running services|running"
@@ -49,7 +49,7 @@ MENU_ITEMS=(
     ["show-hostname"]="Show Hostname|Display hostname configuration|always"
 
     # Utility commands (always available)
-    ["rebuild"]="Rebuild All|Rebuild all services without cache|always"
+    # ["rebuild"]="Rebuild All|Rebuild all services without cache|always"
     ["clean"]="Clean Up|Remove containers and volumes|always"
     ["info"]="Show Info|Display application information|always"
     ["help"]="Full Help|Show detailed help documentation|always"
@@ -153,8 +153,8 @@ build_menu() {
         # Services are running - show management options first
         menu_order=("stop" "restart" "logs" "status" "health")
         [ "$db_running" = true ] && menu_order+=("db-connect")
-        menu_order+=("---") # separator
-        menu_order+=("dev" "dev-build" "prod")
+        # menu_order+=("---") # separator
+        # menu_order+=("dev" "dev-build" "prod")
     else
         # Services not running - show start options first
         menu_order=("dev" "dev-build" "prod" "service")
@@ -182,105 +182,125 @@ build_menu() {
     done
 }
 
+
+
 # Interactive menu function
 show_interactive_menu() {
     local selected=0
-    local first_draw=true
+
+    # Variables to be accessible by nested functions
+    local -a DYNAMIC_MENU
+    local -a selectable_indices # Declared here to be accessible by draw_menu_options
+    local num_selectable        # Declared here to be accessible by draw_menu_options
 
     # Hide cursor
     tput civis
 
-    # Trap to restore cursor on exit
+    # Trap to restore cursor on exit. SIGWINCH will be handled separately.
     trap 'tput cnorm; tput clear' EXIT INT TERM
 
-    # Build menu once (state check only on initial load)
-    build_menu
-    local total=${#DYNAMIC_MENU[@]}
+    # Function to draw or redraw just the menu options (without clearing header/status)
+    draw_menu_options() {
+        local current_selected_idx=$1
 
-    # Skip separators when counting selectable items
-    local selectable_indices=()
-    for i in "${!DYNAMIC_MENU[@]}"; do
-        IFS='|' read -r cmd rest <<< "${DYNAMIC_MENU[$i]}"
-        if [ "$cmd" != "---" ]; then
-            selectable_indices+=("$i")
-        fi
-    done
+        tput rc # Restore cursor to saved position (start of menu options)
+        tput ed # Erase display from cursor down
 
-    local num_selectable=${#selectable_indices[@]}
-
-    # Clear screen once and draw static header
-    clear
-    print_header
-
-    # Show status indicator
-    if is_any_container_running 2>/dev/null; then
-        local count=$(get_running_services_count)
-        echo -e "${GREEN}●${NC} ${count} container(s) running"
-    else
-        echo -e "${RED}○${NC} No containers running"
-    fi
-    echo ""
-    echo -e "Use ${CYAN}↑/↓${NC} arrows, ${CYAN}Enter${NC} to select, ${CYAN}q${NC} to quit"
-    echo ""
-
-    # Save cursor position for menu start
-    local menu_start_line=$(tput lines)
-    tput sc
-
-    while true; do
-        # Move cursor to menu start position
-        tput rc
-        tput ed
-
-        # Display menu options (inline format like --help)
         for i in "${!DYNAMIC_MENU[@]}"; do
             IFS='|' read -r cmd title desc condition <<< "${DYNAMIC_MENU[$i]}"
 
-            # Clear line first
-            tput el
-
             if [ "$cmd" = "---" ]; then
-                # Separator line
                 echo ""
             else
-                if [ $i -eq ${selectable_indices[$selected]} ]; then
-                    # Highlighted option with description
+                if [ "$i" -eq "${selectable_indices[$current_selected_idx]}" ]; then
                     printf "  ${CYAN}▶${NC} ${GREEN}%-20s${NC} ${BLUE}%s${NC}\n" "$title" "$desc"
                 else
-                    # Normal option with description
                     printf "    ${YELLOW}%-20s${NC} ${BLUE}%s${NC}\n" "$title" "$desc"
                 fi
             fi
         done
 
-        # Draw footer only on first draw
-        if [ "$first_draw" = true ]; then
-            echo ""
-            echo -e "${BLUE}────────────────────────────────────────────────────────────${NC}"
-            echo -e "  ${CYAN}Tip:${NC} Run ${YELLOW}./script.sh --help${NC} for full command reference"
-            first_draw=false
+        # Always draw the footer to prevent it from being erased
+        echo ""
+        echo -e "${BLUE}────────────────────────────────────────────────────────────${NC}"
+        echo -e "  ${CYAN}Tip:${NC} Run ${YELLOW}./script.sh --help${NC} for full command reference"
+    }
+
+    # Function to redraw the full menu including header, status, and options
+    redraw_full_menu() {
+        # Recalculate menu based on current state
+        build_menu
+
+        # Recalculate selectable indices based on the new DYNAMIC_MENU
+        selectable_indices=()
+        for i in "${!DYNAMIC_MENU[@]}"; do
+            IFS='|' read -r cmd rest <<< "${DYNAMIC_MENU[$i]}"
+            if [ "$cmd" != "---" ]; then
+                selectable_indices+=("$i")
+            fi
+        done
+        num_selectable=${#selectable_indices[@]}
+
+        # Ensure selected index is valid after menu rebuild (e.g., if options disappeared)
+        if [ "$selected" -ge "$num_selectable" ]; then
+            selected=$((num_selectable - 1))
+            if [ "$selected" -lt 0 ]; then
+                selected=0
+            fi
         fi
 
+        clear
+        print_header
+
+        if is_any_container_running 2>/dev/null; then
+            local count=$(get_running_services_count)
+            echo -e "${GREEN}●${NC} ${count} container(s) running"
+        else
+            echo -e "${RED}○${NC} No containers running"
+        fi
+        echo ""
+        echo -e "Use ${CYAN}↑/↓${NC} arrows, ${CYAN}Enter${NC} to select, ${CYAN}q${NC} to quit"
+        echo ""
+
+        # Save cursor position for menu options drawing area
+        tput sc
+
+        draw_menu_options "$selected"
+    }
+
+    # Trap SIGWINCH to redraw the entire menu on terminal resize
+    # Use a subshell or function to preserve `selected` context
+    trap 'tput cnorm; redraw_full_menu; tput civis' SIGWINCH
+
+    # Initial draw
+    redraw_full_menu
+
+    while true; do
         # Read single keypress
         read -rsn1 key
 
         # Handle arrow keys (they send escape sequences)
         if [[ $key == $'\x1b' ]]; then
-            read -rsn2 key
-            case $key in
-                '[A') # Up arrow
-                    selected=$((selected - 1))
-                    if [ $selected -lt 0 ]; then
-                        selected=$((num_selectable - 1))
-                    fi
-                    ;;
-                '[B') # Down arrow
-                    selected=$((selected + 1))
-                    if [ $selected -ge $num_selectable ]; then
-                        selected=0
-                    fi
-                    ;;
-            esac
+            read -rsn1 -t 0.1 bracket
+            if [[ "$bracket" == "[" ]]; then
+                read -rsn1 -t 0.1 direction
+                case "$direction" in
+                    'A') # Up arrow
+                        selected=$((selected - 1))
+                        if [ $selected -lt 0 ]; then
+                            selected=$((num_selectable - 1))
+                        fi
+                        draw_menu_options "$selected"
+                        ;;
+                    'B') # Down arrow
+                        selected=$((selected + 1))
+                        if [ $selected -ge $num_selectable ]; then
+                            selected=0
+                        fi
+                        draw_menu_options "$selected"
+                        ;;
+                esac
+            fi
         elif [[ $key == '' ]]; then  # Enter key
             # Get selected command
             local selected_idx=${selectable_indices[$selected]}
@@ -288,9 +308,8 @@ show_interactive_menu() {
 
             # Restore cursor and clear
             tput cnorm
-            trap - EXIT INT TERM
+            trap - EXIT INT TERM SIGWINCH # Remove all traps before executing command
             clear
-
             # Execute the command
             echo -e "${GREEN}Executing:${NC} ./script.sh $cmd"
             echo ""
@@ -305,19 +324,21 @@ show_interactive_menu() {
                     ;;
                 *)
                     main "$cmd"
+                    wait_for_user_action
                     ;;
             esac
-            wait_for_user_action
         elif [[ $key == 'q' ]] || [[ $key == 'Q' ]]; then
             # Quit
             tput cnorm
-            trap - EXIT INT TERM
+            trap - EXIT INT TERM SIGWINCH
             clear
             echo "Goodbye!"
             exit 0
         fi
     done
 }
+
+
 
 # Service selection submenu
 show_service_select_menu() {
@@ -373,8 +394,7 @@ show_service_select_menu() {
             wait_for_user_action
         elif [[ $key == 'q' ]] || [[ $key == 'Q' ]]; then
             tput cnorm
-            show_interactive_menu
-            exit 0
+            break
         fi
     done
 }
@@ -439,8 +459,7 @@ show_db_select_menu() {
             wait_for_user_action
         elif [[ $key == 'q' ]] || [[ $key == 'Q' ]]; then
             tput cnorm
-            show_interactive_menu
-            exit 0
+            break
         fi
     done
 }
@@ -448,13 +467,17 @@ show_db_select_menu() {
 # Function to wait for user action after a command
 wait_for_user_action() {
     echo ""
-    echo -e "${CYAN}Use Esc to back, q to quit${NC}"
+    echo -e "${BLUE}────────────────────────────────────────────────────────────${NC}"
+    echo -e "${GREEN}✅ Command finished.${NC}"
+    echo ""
+    echo -e "  ${CYAN}Press [Esc] to return to the main menu.${NC}"
+    echo -e "  ${CYAN}Press [q] to quit.${NC}"
+    echo -e "${BLUE}────────────────────────────────────────────────────────────${NC}"
 
     while true; do
         read -rsn1 key
         if [[ $key == $'\x1b' ]]; then # Escape key
-            show_interactive_menu
-            exit 0
+            exec ./script.sh
         elif [[ $key == 'q' ]] || [[ $key == 'Q' ]]; then
             tput cnorm
             trap - EXIT INT TERM
@@ -639,7 +662,7 @@ prompt_for_hostname_setup() {
 cmd_dev() {
     prompt_for_hostname_setup
     print_info "Starting all services in development mode..."
-    docker compose --profile dev up "$@"
+    docker compose --profile dev up "$@" 2>&1
 }
 
 cmd_dev_build() {
@@ -647,19 +670,19 @@ cmd_dev_build() {
     print_info "Building all services in development mode (without cache)..."
     docker compose --profile dev build --no-cache
     print_info "Starting all services in development mode..."
-    docker compose --profile dev up "$@"
+    docker compose --profile dev up "$@" 2>&1
 }
 
 cmd_prod() {
     prompt_for_hostname_setup
     print_info "Starting all services in production mode..."
-    docker compose --profile prod up -d "$@"
+    docker compose --profile prod up -d "$@" 2>&1
 }
 
 cmd_prod_build() {
     prompt_for_hostname_setup
     print_info "Building and starting all services in production mode..."
-    docker compose --profile prod up -d --build "$@"
+    docker compose --profile prod up -d --build "$@" 2>&1
 }
 
 # Service management
@@ -693,13 +716,13 @@ cmd_service() {
 
 cmd_stop() {
     print_info "Stopping all services..."
-    docker compose down "$@"
+    docker compose --profile dev down "$@"
     print_success "All services stopped"
 }
 
 cmd_restart() {
     print_info "Restarting all services..."
-    docker compose restart "$@"
+    docker compose --profile dev restart "$@"
     print_success "All services restarted"
 }
 
@@ -712,13 +735,15 @@ cmd_clean() {
 
     print_warning "This will remove all volumes and DELETE ALL DATA!"
     if [ "$SKIP_CONFIRM" = false ]; then
-        read -p "Are you sure? (y/N): " -n 1 -r
+        read -p "Are you sure? (y/N): " -n 1 -r < /dev/tty
         echo
     fi
 
     if [ "$SKIP_CONFIRM" = true ] || [[ $REPLY =~ ^[Yy]$ ]]; then
         print_info "Cleaning up services and volumes..."
-        docker compose down -v "$@"
+        # docker compose --profile dev -v down "$@"
+        docker compose --profile dev down --volumes --remove-orphans --rmi all "$@"
+        # docker compose down --rmi all "$@"
         print_success "Cleanup complete"
     else
         print_info "Cleanup cancelled"
@@ -729,10 +754,10 @@ cmd_clean() {
 cmd_logs() {
     if [ -z "$1" ]; then
         print_info "Viewing logs from all services (Ctrl+C to exit)..."
-        docker compose logs -f
+        docker compose --profile dev logs -f
     else
         print_info "Viewing logs from $1 (Ctrl+C to exit)..."
-        docker compose logs -f "$@"
+        docker compose --profile dev logs -f "$@"
     fi
 }
 
@@ -740,7 +765,7 @@ cmd_status() {
     print_header
     echo -e "${GREEN}Container Status:${NC}"
     echo "═══════════════════════════════════════════════════════"
-    docker compose ps
+    docker compose ps --format "table {{.Name}}\t{{.Service}}\t{{.Label \"com.docker.compose.project\"}}\t{{.State}}\t{{.Ports}}"
     echo ""
     echo -e "${GREEN}Volume Usage:${NC}"
     echo "═══════════════════════════════════════════════════════"
@@ -749,7 +774,15 @@ cmd_status() {
 }
 
 cmd_health() {
-    print_header
+    local NO_HEADER=false
+    if [[ "$1" == "--no-header" ]]; then
+        NO_HEADER=true
+        shift # Remove the flag from arguments
+    fi
+
+    if [ "$NO_HEADER" = false ]; then
+        print_header
+    fi
     echo -e "${GREEN}Service Health Check:${NC}"
     echo "═══════════════════════════════════════════════════════"
     echo ""
@@ -1173,29 +1206,18 @@ cmd_exec() {
 }
 
 cmd_rebuild() {
-    local AUTO_START=false
-    if [[ "$1" == "--yes" || "$1" == "-y" ]]; then
-        AUTO_START=true
-        shift # Remove the flag from arguments
-    fi
-
     print_info "Rebuilding all services without cache..."
     docker compose build --no-cache "$@"
     print_success "Rebuild complete"
 
-    print_info "AUTO_START: $AUTO_START."
-    
-    if [ "$AUTO_START" = true ]; then
-        print_info "Automatically starting all services in development mode after rebuild..."
-        docker compose --profile dev up
-    else
-        print_info "To start services with the newly built images, run: ./script.sh dev"
-    fi
+    print_info "Starting all services in development mode in the background..."
+    docker compose --profile dev -d up
+    print_success "Services are starting. Run './script.sh status' to check their status."
 }
 
 cmd_pull() {
     print_info "Pulling latest images..."
-    docker compose pull "$@"
+    docker compose --profile dev pull "$@"
     print_success "Pull complete"
 }
 
@@ -1242,12 +1264,14 @@ main() {
             ;;
         dev-build)
             cmd_dev_build "$@"
+            cmd_health "--no-header"
             ;;
         prod)
             cmd_prod "$@"
             ;;
         prod-build)
             cmd_prod_build "$@"
+            cmd_health "--no-header"
             ;;
 
         # Service management
@@ -1306,6 +1330,7 @@ main() {
             ;;
         rebuild)
             cmd_rebuild "$@"
+            cmd_health "--no-header"
             ;;
         pull)
             cmd_pull "$@"

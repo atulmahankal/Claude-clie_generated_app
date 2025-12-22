@@ -45,7 +45,7 @@ MENU_ITEMS=(
     # Hostname commands
     ["setup-hostname"]="Setup Hostname|Add custom hostname (requires sudo)|hostname_not_set"
     ["remove-hostname"]="Remove Hostname|Remove custom hostname (requires sudo)|hostname_set"
-    ["change-hostname"]="Change Hostname|Change the application hostname (requires sudo)|always"
+    ["change-hostname"]="Change Hostname|Change the application hostname (requires mkcert)|always"
     ["show-hostname"]="Show Hostname|Display hostname configuration|always"
 
     # Utility commands (always available)
@@ -91,6 +91,19 @@ print_warning() {
 
 print_info() {
     echo -e "${BLUE}ℹ️  $1${NC}"
+}
+
+check_mkcert_installed() {
+    if ! command -v mkcert &> /dev/null; then
+        print_error "mkcert is not installed."
+        print_info "To enable trusted HTTPS for local development, please install mkcert:"
+        echo ""
+        echo "  Installation instructions: https://github.com/FiloSottile/mkcert#installation"
+        echo ""
+        echo "  For Linux: Follow instructions on GitHub. Commonly: sudo apt install libnss3-tools, then install mkcert via a package manager like Homebrew or manually."
+        echo "  Then, install the local CA: mkcert -install"
+        exit 1
+    fi
 }
 
 # State detection functions
@@ -591,12 +604,12 @@ show_info() {
     echo -e "  ${CYAN}Hostname:${NC}        $HOSTNAME"
     echo ""
     echo -e "${GREEN}Access Points:${NC}"
-    echo -e "  ${CYAN}Dashboard:${NC}       http://$HOSTNAME"
-    echo -e "  ${CYAN}Auth:${NC}            http://$HOSTNAME/auth"
-    echo -e "  ${CYAN}Todos:${NC}           http://$HOSTNAME/todos"
-    echo -e "  ${CYAN}Fundflow:${NC}        http://$HOSTNAME/fundflow"
+    echo -e "  ${CYAN}Dashboard:${NC}       https://$HOSTNAME"
+    echo -e "  ${CYAN}Auth:${NC}            https://$HOSTNAME/auth"
+    echo -e "  ${CYAN}Todos:${NC}           https://$HOSTNAME/todos"
+    echo -e "  ${CYAN}Fundflow:${NC}        https://$HOSTNAME/fundflow"
     if [ -n "$MAILPIT_HOSTNAME" ]; then
-        echo -e "  ${CYAN}Mailpit:${NC}         http://$MAILPIT_HOSTNAME"
+        echo -e "  ${CYAN}Mailpit:${NC}         https://$MAILPIT_HOSTNAME"
     else
         echo -e "  ${CYAN}Mailpit:${NC}         http://localhost:8030"
     fi
@@ -631,8 +644,10 @@ cmd_dev() {
 
 cmd_dev_build() {
     prompt_for_hostname_setup
-    print_info "Building and starting all services in development mode..."
-    docker compose --profile dev up --build "$@"
+    print_info "Building all services in development mode (without cache)..."
+    docker compose --profile dev build --no-cache
+    print_info "Starting all services in development mode..."
+    docker compose --profile dev up "$@"
 }
 
 cmd_prod() {
@@ -689,10 +704,19 @@ cmd_restart() {
 }
 
 cmd_clean() {
+    local SKIP_CONFIRM=false
+    if [[ "$1" == "--yes" || "$1" == "-y" ]]; then
+        SKIP_CONFIRM=true
+        shift # Remove the flag from arguments
+    fi
+
     print_warning "This will remove all volumes and DELETE ALL DATA!"
-    read -p "Are you sure? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if [ "$SKIP_CONFIRM" = false ]; then
+        read -p "Are you sure? (y/N): " -n 1 -r
+        echo
+    fi
+
+    if [ "$SKIP_CONFIRM" = true ] || [[ $REPLY =~ ^[Yy]$ ]]; then
         print_info "Cleaning up services and volumes..."
         docker compose down -v "$@"
         print_success "Cleanup complete"
@@ -867,58 +891,107 @@ cmd_db_restore() {
 
 # Hostname commands
 cmd_setup_hostname() {
+    check_mkcert_installed
     local HOSTNAME=$(get_hostname)
     local MAILPIT_HOSTNAME=$(get_mailpit_hostname)
 
-    # Check if running as root
-    if [ "$EUID" -ne 0 ]; then
-        print_error "This command requires sudo privileges"
-        echo ""
-        echo "Please run: sudo ./script.sh setup-hostname"
-        exit 1
-    fi
-
-    print_header
     print_info "Setting up custom hostnames..."
     echo ""
 
     # Backup /etc/hosts
-    cp /etc/hosts /etc/hosts.backup.$(date +%Y%m%d_%H%M%S)
+    sudo cp /etc/hosts /etc/hosts.backup.$(date +%Y%m%d_%H%M%S)
     print_success "Backed up /etc/hosts"
 
     # Add main hostname to /etc/hosts
-    if grep -q "127.0.0.1.*$HOSTNAME" /etc/hosts; then
-        print_warning "Main hostname $HOSTNAME already exists in /etc/hosts"
-    else
-        echo "127.0.0.1    $HOSTNAME" >> /etc/hosts
+    if ! grep -q "127.0.0.1\s\+$HOSTNAME$" /etc/hosts; then
+        sudo sh -c "echo '127.0.0.1    $HOSTNAME' >> /etc/hosts"
         print_success "Added $HOSTNAME to /etc/hosts"
+    else
+        print_warning "Main hostname $HOSTNAME already exists in /etc/hosts"
     fi
 
     # Add mailpit hostname if configured
     if [ -n "$MAILPIT_HOSTNAME" ] && [ "$MAILPIT_HOSTNAME" != "localhost" ]; then
-        if grep -q "127.0.0.1.*$MAILPIT_HOSTNAME" /etc/hosts; then
-            print_warning "Mailpit hostname $MAILPIT_HOSTNAME already exists in /etc/hosts"
-        else
-            echo "127.0.0.1    $MAILPIT_HOSTNAME" >> /etc/hosts
+        if ! grep -q "127.0.0.1\s\+$MAILPIT_HOSTNAME$" /etc/hosts; then
+            sudo sh -c "echo '127.0.0.1    $MAILPIT_HOSTNAME' >> /etc/hosts"
             print_success "Added $MAILPIT_HOSTNAME to /etc/hosts"
+        else
+            print_warning "Mailpit hostname $MAILPIT_HOSTNAME already exists in /etc/hosts"
         fi
     fi
+
+    echo ""
+    print_info "Generating SSL certificates with mkcert..."
+
+    # Determine the original user's home directory when running with sudo
+    local ORIGINAL_USER_HOME
+    if [ -n "$SUDO_USER" ]; then
+        ORIGINAL_USER_HOME=$(eval echo "~$SUDO_USER")
+    else
+        ORIGINAL_USER_HOME="$HOME"
+    fi
+
+    # Set CAROOT to the original user's mkcert directory
+    # This ensures subsequent mkcert calls use the user's CA
+    export CAROOT="$ORIGINAL_USER_HOME/.local/share/mkcert"
+
+    # IMPORTANT: Assumes the user has already run `mkcert -install` once as their normal user.
+    # The script will now use that user's CA to sign the certificates.
+
+    local crt_path="nginx/ssl"
+
+    # Ensure nginx/ssl directory exists
+    mkdir -p $crt_path
+
+    # Ensure the nginx/ssl directory is owned by the current user
+    # This prevents permission denied errors if it was previously created by sudo
+    sudo chown -R $(whoami):$(whoami) $crt_path
+    print_info "Ensured ownership of $crt_path directory for current user."
+
+    # Clean up old certificates
+    rm -f $crt_path/nginx-selfsigned.crt $crt_path/nginx-selfsigned.key
+    print_info "Removed old SSL certificates."
+
+    # Generate new certificates for all relevant hostnames, signed by the user's CA
+    mkcert -cert-file $crt_path/nginx-selfsigned.crt -key-file $crt_path/nginx-selfsigned.key \
+        "$HOSTNAME" "$MAILPIT_HOSTNAME" localhost 127.0.0.1
+
+    print_success "Generated new SSL certificates for $HOSTNAME and $MAILPIT_HOSTNAME using the current user's CA."
+
+    # The generated certificates are in the current working directory, not necessarily in nginx/ssl
+    # Ensure they are moved to the correct location for Nginx
+    # (The mkcert command above saves directly to nginx/ssl if the path is provided).
+    # Double check if mkcert has changed its behavior.
+    # From mkcert --help: `-cert-file <file>`, `-key-file <file>`
+    # These specify where to store the generated files, so the above command should be correct.
+
+    # Dynamically update Nginx configuration with the correct server_name
+    # Create a temporary nginx.conf with placeholders
+    # Restore from .bak first to ensure a clean state
+    if [ -f nginx/nginx.conf.bak ]; then
+        mv nginx/nginx.conf.bak nginx/nginx.conf
+    fi
+    sed -i "s/server_name localhost;/server_name $HOSTNAME $MAILPIT_HOSTNAME;/" nginx/nginx.conf
+    print_success "Updated nginx/nginx.conf with server_name: $HOSTNAME $MAILPIT_HOSTNAME"
+
+    # Unset CAROOT to avoid affecting other commands
+    unset CAROOT
 
     echo ""
     print_success "Hostname setup complete!"
     echo ""
     echo -e "${GREEN}You can now access the application at:${NC}"
-    echo -e "  ${CYAN}Dashboard:${NC}  http://$HOSTNAME"
-    echo -e "  ${CYAN}Auth:${NC}       http://$HOSTNAME/auth"
-    echo -e "  ${CYAN}Todos:${NC}      http://$HOSTNAME/todos"
-    echo -e "  ${CYAN}Fundflow:${NC}   http://$HOSTNAME/fundflow"
+    echo -e "  ${CYAN}Dashboard:${NC}  https://$HOSTNAME"
+    echo -e "  ${CYAN}Auth:${NC}       https://$HOSTNAME/auth"
+    echo -e "  ${CYAN}Todos:${NC}      https://$HOSTNAME/todos"
+    echo -e "  ${CYAN}Fundflow:${NC}   https://$HOSTNAME/fundflow"
     if [ -n "$MAILPIT_HOSTNAME" ] && [ "$MAILPIT_HOSTNAME" != "localhost" ]; then
-        echo -e "  ${CYAN}Mailpit:${NC}    http://$MAILPIT_HOSTNAME"
+        echo -e "  ${CYAN}Mailpit:${NC}    https://$MAILPIT_HOSTNAME"
     else
         echo -e "  ${CYAN}Mailpit:${NC}    http://localhost:8030"
     fi
     echo ""
-    print_info "Start the application with: ./script.sh dev"
+    print_info "Start the application with: ./script.sh dev (or restart if already running)"
     echo ""
 }
 
@@ -926,25 +999,17 @@ cmd_remove_hostname() {
     local HOSTNAME=$(get_hostname)
     local MAILPIT_HOSTNAME=$(get_mailpit_hostname)
 
-    # Check if running as root
-    if [ "$EUID" -ne 0 ]; then
-        print_error "This command requires sudo privileges"
-        echo ""
-        echo "Please run: sudo ./script.sh remove-hostname"
-        exit 1
-    fi
-
     print_header
     print_info "Removing custom hostnames..."
     echo ""
 
     # Backup /etc/hosts
-    cp /etc/hosts /etc/hosts.backup.$(date +%Y%m%d_%H%M%S)
+    sudo cp /etc/hosts /etc/hosts.backup.$(date +%Y%m%d_%H%M%S)
     print_success "Backed up /etc/hosts"
 
     # Remove main hostname from /etc/hosts
-    if grep -q "127.0.0.1.*$HOSTNAME" /etc/hosts; then
-        sed -i.bak "/127.0.0.1.*$HOSTNAME/d" /etc/hosts
+    if grep -q "127.0.0.1\s\+$HOSTNAME" /etc/hosts; then
+        sudo sed -i.bak "/127.0.0.1\s\+$HOSTNAME/d" /etc/hosts
         print_success "Removed $HOSTNAME from /etc/hosts"
     else
         print_warning "Hostname $HOSTNAME not found in /etc/hosts"
@@ -952,8 +1017,8 @@ cmd_remove_hostname() {
 
     # Remove mailpit hostname if configured
     if [ -n "$MAILPIT_HOSTNAME" ] && [ "$MAILPIT_HOSTNAME" != "localhost" ]; then
-        if grep -q "127.0.0.1.*$MAILPIT_HOSTNAME" /etc/hosts; then
-            sed -i.bak "/127.0.0.1.*$MAILPIT_HOSTNAME/d" /etc/hosts
+        if grep -q "127.0.0.1\s\+$MAILPIT_HOSTNAME" /etc/hosts; then
+            sudo sed -i.bak "/127.0.0.1\s\+$MAILPIT_HOSTNAME/d" /etc/hosts
             print_success "Removed $MAILPIT_HOSTNAME from /etc/hosts"
         else
             print_warning "Mailpit hostname $MAILPIT_HOSTNAME not found in /etc/hosts"
@@ -968,12 +1033,7 @@ cmd_remove_hostname() {
 }
 
 cmd_change_hostname() {
-    if [ "$EUID" -ne 0 ]; then
-        print_error "This command requires sudo privileges"
-        echo ""
-        echo "Please run: sudo ./script.sh change-hostname"
-        exit 1
-    fi
+    check_mkcert_installed
 
     local OLD_HOSTNAME=$(get_hostname)
 
@@ -988,8 +1048,16 @@ cmd_change_hostname() {
         
         print_info "Removing old hostname: $OLD_HOSTNAME"
         # Directly remove the old hostname from /etc/hosts
-        sed -i.bak "/127.0.0.1.*$OLD_HOSTNAME/d" /etc/hosts
+        sudo sed -i.bak "/127.0.0.1\s\+$OLD_HOSTNAME/d" /etc/hosts
         print_success "Removed $OLD_HOSTNAME from /etc/hosts"
+
+        local OLD_MAILPIT_HOSTNAME="mailpit.$OLD_HOSTNAME"
+        if grep -q "127.0.0.1\s\+$OLD_MAILPIT_HOSTNAME" /etc/hosts; then
+            sudo sed -i.bak "/127.0.0.1\s\+$OLD_MAILPIT_HOSTNAME/d" /etc/hosts
+            print_success "Removed $OLD_MAILPIT_HOSTNAME from /etc/hosts"
+        else
+            print_warning "Old Mailpit hostname $OLD_MAILPIT_HOSTNAME not found in /etc/hosts"
+        fi
         echo ""
     fi
 
@@ -1008,8 +1076,17 @@ cmd_change_hostname() {
             echo "" >> .env
             echo "APP_HOSTNAME=$NEW_HOSTNAME" >> .env
         fi
+
+        # Update MAILPIT_HOSTNAME in .env to be consistent with the new APP_HOSTNAME
+        NEW_MAILPIT_HOSTNAME="mailpit.$NEW_HOSTNAME"
+        if grep -q "MAILPIT_HOSTNAME=" .env; then
+            sed -i.bak "s/MAILPIT_HOSTNAME=.*/MAILPIT_HOSTNAME=$NEW_MAILPIT_HOSTNAME/" .env
+        else
+            echo "MAILPIT_HOSTNAME=$NEW_MAILPIT_HOSTNAME" >> .env
+        fi
     else
         echo "APP_HOSTNAME=$NEW_HOSTNAME" > .env
+        echo "MAILPIT_HOSTNAME=mailpit.$NEW_HOSTNAME" >> .env
     fi
     print_success "Updated .env with new hostname: $NEW_HOSTNAME"
     echo ""
@@ -1062,12 +1139,12 @@ cmd_show_hostname() {
 
     if [ "$main_configured" = true ]; then
         echo -e "${GREEN}Access URLs:${NC}"
-        echo -e "  ${CYAN}Dashboard:${NC}  http://$HOSTNAME"
-        echo -e "  ${CYAN}Auth:${NC}       http://$HOSTNAME/auth"
-        echo -e "  ${CYAN}Todos:${NC}      http://$HOSTNAME/todos"
-        echo -e "  ${CYAN}Fundflow:${NC}   http://$HOSTNAME/fundflow"
+        echo -e "  ${CYAN}Dashboard:${NC}  https://$HOSTNAME"
+        echo -e "  ${CYAN}Auth:${NC}       https://$HOSTNAME/auth"
+        echo -e "  ${CYAN}Todos:${NC}      https://$HOSTNAME/todos"
+        echo -e "  ${CYAN}Fundflow:${NC}   https://$HOSTNAME/fundflow"
         if [ "$mailpit_configured" = true ]; then
-            echo -e "  ${CYAN}Mailpit:${NC}    http://$MAILPIT_HOSTNAME"
+            echo -e "  ${CYAN}Mailpit:${NC}    https://$MAILPIT_HOSTNAME"
         else
             echo -e "  ${CYAN}Mailpit:${NC}    http://localhost:8030"
         fi
@@ -1096,9 +1173,24 @@ cmd_exec() {
 }
 
 cmd_rebuild() {
+    local AUTO_START=false
+    if [[ "$1" == "--yes" || "$1" == "-y" ]]; then
+        AUTO_START=true
+        shift # Remove the flag from arguments
+    fi
+
     print_info "Rebuilding all services without cache..."
     docker compose build --no-cache "$@"
     print_success "Rebuild complete"
+
+    print_info "AUTO_START: $AUTO_START."
+    
+    if [ "$AUTO_START" = true ]; then
+        print_info "Automatically starting all services in development mode after rebuild..."
+        docker compose --profile dev up
+    else
+        print_info "To start services with the newly built images, run: ./script.sh dev"
+    fi
 }
 
 cmd_pull() {

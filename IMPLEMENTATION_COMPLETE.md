@@ -412,3 +412,31 @@ Before deploying to production:
 **🎊 Congratulations! Your JAM Stack application is production-ready and fully operational!**
 
 Built with ❤️ using Next.js, React, Python, FastAPI, and Docker.
+
+---
+
+## Detailed completed tasks (appended: 2025-12-23)
+
+The following completed items were reviewed and documented from the repository scaffold and configuration files. These are implementation-level confirmations and useful references for future audits.
+
+- Core system scaffolding and orchestration
+  - Micro-frontend architecture implemented using Nginx path-based routing; frontends configured with basePaths for /auth, /todos, /fundflow (see: nginx/, services/*/frontend/next.config.js).
+  - Docker Compose defines profiles for dev/prod/auth/todos/fundflow and exposes gRPC and HTTP ports for local debugging (see: docker-compose.yml).
+  - script.sh provides orchestration utilities for starting/stopping services, hostname management, DB connect/backup and other workflows (see: script.sh).
+- Mailpit integration
+  - Mailpit configured in docker-compose for SMTP capture and web UI; environment variables present for Mailpit UI and SMTP ports (see: docker-compose.yml, README.md).
+- Backend & infra foundations
+  - FastAPI scaffolds and placeholder gRPC server entrypoints exist in each service backend (services/*/backend/src/main.py), along with REST health endpoints.
+  - SQLAlchemy + Alembic are scaffolded with initial migration files in services/*/migrations/.
+  - JWT, bcrypt password hashing, and TOTP-based 2FA utilities are present in service utilities.
+  - Email utilities are configured to use Mailpit (aiosmtplib integration present in backend utilities).
+- Frontend & shared packages
+  - @jam/shared-ui component library scaffolded with core primitives and wired into Next.js frontends (see: packages/ or base_app/shared-ui).
+  - Frontend foundations: Next.js 16 app router and Tailwind configuration present in frontend projects.
+- Documentation
+  - README.md, Workflow.md and CLAUDE.md provide architecture overview, quick start and development workflows.
+
+Notes: these items were validated by inspecting repo structure and config files; runtime verification (booting services, running migrations) is recommended as the next practical step to confirm end-to-end behavior.
+
+---
+

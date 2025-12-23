@@ -26,32 +26,54 @@ This file summarizes current completed work and remaining implementation tasks (
 ### Phase 2: Auth Service
 
 - [ ] Start and fully implement gRPC server entrypoint
-  - services/auth-service/backend/src/main.py (# TODO present)
+  - [ ] Add server bootstrap in services/auth-service/backend/src/main.py
+  - [ ] Load proto definitions and register gRPC service implementations
+  - [ ] Ensure environment-driven ports, health endpoint and readiness probe
+  - [ ] Implement graceful shutdown and SIG handling
+  - [ ] Add structured logging, metrics and request tracing headers
 - [ ] Finish frontend auth UI flow (login/signup) and wire 2FA verification to backend
-- [ ] Testing
-  - [ ] Backend test
-  - [ ] Frontend test
+  - [ ] Implement login form + validation and client-side error handling
+  - [ ] Implement signup form + email verification and resend flows
+  - [ ] Add 2FA (TOTP) setup, QR code display, and verification flow
+  - [ ] Provide backup codes and recovery UX
+- [ ] Tests
+  - [ ] Unit tests for auth utilities (JWT, hashing, TOTP)
+  - [ ] Integration test for signup -> email -> 2FA flow
+  - [ ] End-to-end test covering login, refresh tokens and logout
 
 ### Phase 3: Todos Service
 
 - [ ] Start and fully implement gRPC server entrypoint
-  - services/todos-service/backend/src/main.py (# TODO present)
-- [ ] Implement Todos operations (CRUD) and controllers
-  - services/todos-service/src/controllers/todos.controller.ts (TODO: TODO OPERATIONS)
-- [ ] Wire Next.js/frontend API routes to Todos gRPC endpoints
-- [ ] Testing
-  - [ ] Backend test
-  - [ ] Frontend test
+  - [ ] Add server bootstrap in services/todos-service/backend/src/main.py
+  - [ ] Register Todos gRPC handlers and wire DB connections
+  - [ ] Add health and readiness endpoints for the service
+- [ ] Implement Todos CRUD and service layer
+  - [ ] Define proto messages and RPCs for Todos (create/read/update/delete, list)
+  - [ ] Create service layer for Todos operations with transactional safety
+  - [ ] Implement controllers: services/todos-service/src/controllers/todos.controller.ts
+  - [ ] Add migrations to ensure todos table schema and indexes (user_id, created_at)
+  - [ ] Implement pagination, filtering and sorting for list endpoints
+- [ ] Wire frontend
+  - [ ] Map Next.js API Routes to Todos gRPC client calls with retries and timeout
+  - [ ] Add React components and hooks for Todos UI (list, create, edit, delete)
+- [ ] Tests
+  - [ ] Unit tests for controllers and service layer
+  - [ ] Integration tests for gRPC endpoints and DB interactions
 
 ### Phase 4: Fundflow Service
 
 - [ ] Start and fully implement gRPC server entrypoint
-  - services/fundflow-service/backend/src/main.py (# TODO present)
+  - [ ] Add server bootstrap in services/fundflow-service/backend/src/main.py
+  - [ ] Register fundflow handlers and ensure DB connections & migrations run
 - [ ] Implement Fundflow business logic
-  - services/fundflow-service/src/grpc/handlers/fundflow.handler.ts (TODO: Implement monthly trends calculation)
-- [ ] Testing
-  - [ ] Backend test
-  - [ ] Frontend test
+  - [ ] Implement monthly trends calculation in services/fundflow-service/src/grpc/handlers/fundflow.handler.ts
+  - [ ] Add aggregation queries, grouping by category, month and account
+  - [ ] Add caching strategy for expensive aggregations (e.g., Redis) if needed
+  - [ ] Add input validation and error handling
+- [ ] Tests
+  - [ ] Unit tests for calculations and handlers
+  - [ ] Integration tests against sample datasets and DB migrations
+
 
 ## Phase 5: Frontend / BFF
 

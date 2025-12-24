@@ -31,11 +31,14 @@ async def lifespan(app: FastAPI):
     init_db()
     logger.info("Database initialized")
 
-    # TODO: Start gRPC server
-    # from .grpc.server import GrpcServer
-    # grpc_server = GrpcServer(port=settings.GRPC_PORT)
-    # asyncio.create_task(grpc_server.serve())
-    logger.info(f"gRPC server would start on port {settings.GRPC_PORT}")
+    # Start gRPC server (if implemented)
+    try:
+        from .grpc.server import GrpcServer
+        grpc_server = GrpcServer(port=settings.GRPC_PORT)
+        asyncio.create_task(grpc_server.serve())
+        logger.info(f"gRPC server started on port {settings.GRPC_PORT}")
+    except Exception as e:
+        logger.warning(f"gRPC server not started (missing implementation or error): {e}")
 
     logger.info(f"Auth service started on HTTP port {settings.HTTP_PORT}")
 
@@ -43,8 +46,12 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Shutting down auth service...")
-    # if grpc_server:
-    #     await grpc_server.stop()
+    if grpc_server:
+        try:
+            await grpc_server.stop()
+            logger.info("gRPC server stopped")
+        except Exception as e:
+            logger.warning(f"Error stopping gRPC server: {e}")
 
 
 # Create FastAPI application

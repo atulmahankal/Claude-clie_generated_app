@@ -25,8 +25,8 @@ This file summarizes current completed work and remaining implementation tasks (
 
 ### Phase 2: Auth Service
 
-- [ ] Start and fully implement gRPC server entrypoint
-  - [ ] Add server bootstrap in services/auth-service/backend/src/main.py
+- [x] Start and fully implement gRPC server entrypoint
+  - [x] Add server bootstrap in services/auth-service/backend/src/main.py
   - [ ] Load proto definitions and register gRPC service implementations
   - [ ] Ensure environment-driven ports, health endpoint and readiness probe
   - [ ] Implement graceful shutdown and SIG handling
@@ -43,8 +43,8 @@ This file summarizes current completed work and remaining implementation tasks (
 
 ### Phase 3: Todos Service
 
-- [ ] Start and fully implement gRPC server entrypoint
-  - [ ] Add server bootstrap in services/todos-service/backend/src/main.py
+- [x] Start and fully implement gRPC server entrypoint
+  - [x] Add server bootstrap in services/todos-service/backend/src/main.py
   - [ ] Register Todos gRPC handlers and wire DB connections
   - [ ] Add health and readiness endpoints for the service
 - [ ] Implement Todos CRUD and service layer
@@ -62,8 +62,8 @@ This file summarizes current completed work and remaining implementation tasks (
 
 ### Phase 4: Fundflow Service
 
-- [ ] Start and fully implement gRPC server entrypoint
-  - [ ] Add server bootstrap in services/fundflow-service/backend/src/main.py
+- [x] Start and fully implement gRPC server entrypoint
+  - [x] Add server bootstrap in services/fundflow-service/backend/src/main.py
   - [ ] Register fundflow handlers and ensure DB connections & migrations run
 - [ ] Implement Fundflow business logic
   - [ ] Implement monthly trends calculation in services/fundflow-service/src/grpc/handlers/fundflow.handler.ts
@@ -102,11 +102,37 @@ This file summarizes current completed work and remaining implementation tasks (
 ## Recommended next actions (priority)
 
 - [ ] Start gRPC servers in backend entrypoints and verify gRPC endpoints are reachable from Next.js API routes.
+  - Completion criteria: gRPC processes start without error, health/readiness endpoints return 200, and a smoke test (grpcurl or client) can call a basic method.
 - [ ] Implement Todos controller & handlers (CRUD + migrations verification).
+  - Completion criteria: Protos and service methods exist for CRUD, migrations applied creating `todos` table, integration tests cover create/read/update/delete, and frontend can list todos via BFF.
 - [ ] Implement Fundflow monthly trends calculation and add unit tests for it.
+  - Completion criteria: Aggregation endpoints return expected results for sample datasets, unit tests validate grouping and edge cases, and performance is within acceptable bounds for test dataset.
 - [ ] Wire frontend API routes to gRPC clients and finish auth UI flow (2FA verification).
+  - Completion criteria: Next.js API routes call gRPC clients, authentication flows (login/signup/2FA) succeed end-to-end, and protected routes validate JWT scopes.
 - [ ] Add test suites and CI, then run security checklist before deploying.
+  - Completion criteria: Unit and integration tests run locally and in CI, CI passes on PRs, and security checklist items are documented and verified.
 
 ---
+
+How to mark tasks as complete
+
+1. When a task meets its completion criteria, update the checkbox in IMPLEMENTATION_TODO.md to checked ([x]).
+2. Append a completion entry to IMPLEMENTATION_COMPLETE.md using the template below and include the commit/PR reference.
+
+Completion entry template (paste into IMPLEMENTATION_COMPLETE.md):
+
+- [2025-12-23] Task: <short title>
+  - Commit/PR: <commit-sha or PR URL>
+  - Summary: <one-line summary of what was implemented>
+  - Verification: <how it was tested/validated>
+  - Notes: <optional notes or follow-ups>
+
+Example:
+
+- [2025-12-23] Task: Start gRPC server bootstraps for services
+  - Commit/PR: https://github.com/org/repo/pull/123
+  - Summary: Added safe gRPC bootstrap/try-start and graceful shutdown to auth, todos, and fundflow backends.
+  - Verification: Launched backend with uvicorn locally; health endpoints returned 200; logs show gRPC start attempt.
+  - Notes: Implementations of GrpcServer class required for full gRPC functionality.
 
 If you want, next step can be: run tests, start the dev environment, or open/generate issues for each pending item. Reply with preferred next action or "pick for me".
